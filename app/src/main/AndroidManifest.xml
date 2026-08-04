@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools"
-    package="com.example.reply">
+    package="com.rD227.bToothFstm">
 
     <!-- Bluetooth permissions for API 31+ -->
     <uses-permission android:name="android.permission.BLUETOOTH_SCAN"
@@ -9,6 +9,9 @@
         tools:targetApi="s" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
     <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE" />
+
+    <!-- 低版本可能还需定位权限（若扫描 BLE 设备） -->
+
 
     <!-- Legacy Bluetooth for API < 31 -->
     <uses-permission android:name="android.permission.BLUETOOTH"
@@ -29,7 +32,7 @@
         android:theme="@style/Theme.Reply"
         tools:targetApi="31">
         <activity
-            android:name=".ui.MainActivity"
+            android:name="com.rD227.com.rD227.BToothFstm.ui.MainActivity"
             android:exported="true"
             android:label="@string/app_name"
             android:theme="@style/Theme.Reply">

@@ -1,4 +1,4 @@
-package com.example.reply.ui.screens
+package com.rD227.bToothFstm.ui.screens
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -44,8 +44,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.reply.R
-import com.example.reply.ui.theme.AppTheme
+import com.rD227.bToothFstm.R
+import com.rD227.bToothFstm.ui.theme.AppTheme
 
 enum class LogDirection { SENT, RECEIVED }
 enum class LogFilter { ALL, SENT, RECEIVED }

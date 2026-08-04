@@ -1,4 +1,4 @@
-package com.example.reply.ui.screens
+package com.rD227.bToothFstm.ui.screens
 
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
@@ -51,21 +51,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import com.example.reply.R
-import com.example.reply.ui.theme.AppTheme
+import com.rD227.bToothFstm.R
+import com.rD227.bToothFstm.data.ScanData
+import com.rD227.bToothFstm.data.ScanData.BleDevice
 
-data class BleDevice(
-    val name: String,
-    val address: String,
-    val rssi: Int,
-    val isConnected: Boolean = false,
-    val isPaired: Boolean = false
-)
+import com.rD227.bToothFstm.ui.theme.AppTheme
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -74,7 +68,13 @@ fun ScanScreen(modifier: Modifier = Modifier) {
     val devices = remember {
         mutableStateOf(
             listOf(
-                BleDevice("MCU-STM32-01", "AA:BB:CC:DD:EE:01", -55, isConnected = true, isPaired = true),
+                ScanData.BleDevice(
+                    "MCU-STM32-01",
+                    "AA:BB:CC:DD:EE:01",
+                    -55,
+                    isConnected = true,
+                    isPaired = true
+                ),
                 BleDevice("Arduino Nano BLE", "AA:BB:CC:DD:EE:02", -72, isPaired = true),
                 BleDevice("ESP32-DevKit", "AA:BB:CC:DD:EE:03", -80),
                 BleDevice("HC-05 Module", "AA:BB:CC:DD:EE:04", -90),

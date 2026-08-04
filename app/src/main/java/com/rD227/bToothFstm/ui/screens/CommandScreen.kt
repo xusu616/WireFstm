@@ -1,4 +1,4 @@
-package com.example.reply.ui.screens
+package com.rD227.bToothFstm.ui.screens
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -31,7 +31,6 @@ import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
-import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
@@ -54,8 +53,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import com.example.reply.R
-import com.example.reply.ui.theme.AppTheme
+import com.rD227.bToothFstm.R
+import com.rD227.bToothFstm.ui.theme.AppTheme
 
 data class QuickCommand(
     val label: String,

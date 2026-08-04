@@ -1,4 +1,4 @@
-package com.example.reply.ui
+package com.rD227.bToothFstm.ui
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -7,7 +7,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.Modifier
-import com.example.reply.ui.theme.AppTheme
+import com.rD227.bToothFstm.ui.theme.AppTheme
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {

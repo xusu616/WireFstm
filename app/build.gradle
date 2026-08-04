@@ -20,10 +20,10 @@ plugins {
 }
 
 android {
-    namespace "com.example.reply"
+    namespace "com.rD227.bToothFstm"
     compileSdkVersion 36
     defaultConfig {
-        applicationId 'com.example.reply'
+        applicationId 'com.example.com.rD227.BToothFstm'
         minSdkVersion 23
         targetSdkVersion 33
         versionCode 1
@@ -106,17 +106,20 @@ dependencies {
     androidTestImplementation "androidx.compose.ui:ui-test"
     androidTestImplementation "androidx.compose.ui:ui-test-junit4"
 
-    implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2"
+    implementation("androidx.bluetooth:bluetooth:1.0.0")
+    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.11.0")
+
+    implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0"
 
     implementation 'androidx.appcompat:appcompat:1.7.1'
     implementation 'androidx.activity:activity-ktx:1.13.0'
     implementation 'androidx.core:core-ktx:1.18.0'
     implementation "androidx.activity:activity-compose:1.13.0"
 
-    implementation "androidx.lifecycle:lifecycle-viewmodel-ktx:2.10.0"
-    implementation "androidx.lifecycle:lifecycle-viewmodel-savedstate:2.10.0"
-    implementation "androidx.lifecycle:lifecycle-livedata-ktx:2.10.0"
-    implementation "androidx.lifecycle:lifecycle-viewmodel-compose:2.10.0"
+    implementation "androidx.lifecycle:lifecycle-viewmodel-ktx:2.11.0"
+    implementation "androidx.lifecycle:lifecycle-viewmodel-savedstate:2.11.0"
+    implementation "androidx.lifecycle:lifecycle-livedata-ktx:2.11.0"
+    implementation "androidx.lifecycle:lifecycle-viewmodel-compose:2.11.0"
 
     androidTestImplementation 'androidx.test:rules:1.7.0'
     androidTestImplementation 'androidx.test:runner:1.7.0'

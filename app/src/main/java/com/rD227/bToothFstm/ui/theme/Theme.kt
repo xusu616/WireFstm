@@ -1,4 +1,4 @@
-package com.example.reply.ui.theme
+package com.rD227.bToothFstm.ui.theme
 
 import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme

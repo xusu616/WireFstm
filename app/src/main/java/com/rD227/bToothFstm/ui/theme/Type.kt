@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package com.example.reply.ui.theme
+package com.rD227.bToothFstm.ui.theme
 
 import androidx.compose.material3.Typography
 import androidx.compose.ui.text.TextStyle

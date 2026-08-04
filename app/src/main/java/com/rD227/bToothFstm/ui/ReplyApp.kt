@@ -1,4 +1,4 @@
-package com.example.reply.ui
+package com.rD227.bToothFstm.ui
 
 import android.content.res.Configuration.UI_MODE_NIGHT_NO
 import android.content.res.Configuration.UI_MODE_NIGHT_YES
@@ -27,11 +27,11 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
-import com.example.reply.R
-import com.example.reply.ui.screens.CommandScreen
-import com.example.reply.ui.screens.LogScreen
-import com.example.reply.ui.screens.ScanScreen
-import com.example.reply.ui.theme.AppTheme
+import com.rD227.bToothFstm.R
+import com.rD227.bToothFstm.ui.screens.CommandScreen
+import com.rD227.bToothFstm.ui.screens.LogScreen
+import com.rD227.bToothFstm.ui.screens.ScanScreen
+import com.rD227.bToothFstm.ui.theme.AppTheme
 
 sealed class AppScreen(
     val route: String,
