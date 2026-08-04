@@ -1,5 +1,9 @@
 package com.rD227.bToothFstm.ui.screens
 
+import android.Manifest
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -45,9 +49,9 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -58,28 +62,39 @@ import androidx.compose.ui.unit.dp
 import com.rD227.bToothFstm.R
 import com.rD227.bToothFstm.data.ScanData
 import com.rD227.bToothFstm.data.ScanData.BleDevice
-
 import com.rD227.bToothFstm.ui.theme.AppTheme
+import com.rD227.bToothFstm.viewmodel.ScanViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ScanScreen(modifier: Modifier = Modifier) {
-    var isScanning by remember { mutableStateOf(false) }
-    val devices = remember {
-        mutableStateOf(
-            listOf(
-                ScanData.BleDevice(
-                    "MCU-STM32-01",
-                    "AA:BB:CC:DD:EE:01",
-                    -55,
-                    isConnected = true,
-                    isPaired = true
-                ),
-                BleDevice("Arduino Nano BLE", "AA:BB:CC:DD:EE:02", -72, isPaired = true),
-                BleDevice("ESP32-DevKit", "AA:BB:CC:DD:EE:03", -80),
-                BleDevice("HC-05 Module", "AA:BB:CC:DD:EE:04", -90),
-            )
-        )
+fun ScanScreen(
+    modifier: Modifier = Modifier,
+    viewModel: ScanViewModel = viewModel()
+) {
+    // launcher 在 Composable 里声明，结果通知 ViewModel
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { result ->
+        viewModel.onPermissionResult(result.values.all { it })
+    }
+
+    // 扫描按钮的行为：有权限直接扫，没有权限先申请
+    val onToggleScan = {
+        if (viewModel.isScanning) {
+            viewModel.stopScan()
+        } else if (viewModel.hasPermission) {
+            viewModel.startScan()
+        } else {
+            val permissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                arrayOf(
+                    Manifest.permission.BLUETOOTH_SCAN,
+                    Manifest.permission.BLUETOOTH_CONNECT
+                )
+            } else {
+                arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
+            }
+            permissionLauncher.launch(permissions)
+        }
     }
 
     Scaffold(
@@ -105,15 +120,15 @@ fun ScanScreen(modifier: Modifier = Modifier) {
                 .padding(innerPadding)
         ) {
             ScanControlCard(
-                isScanning = isScanning,
-                deviceCount = devices.value.size,
-                onToggleScan = { isScanning = !isScanning }
+                isScanning = viewModel.isScanning,
+                deviceCount = viewModel.devices.size,
+                onToggleScan = onToggleScan
             )
             LazyColumn(
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                items(devices.value) { device ->
+                items(viewModel.devices) { device ->
                     DeviceCard(device = device)
                 }
             }
