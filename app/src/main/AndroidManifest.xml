@@ -32,7 +32,7 @@
         android:theme="@style/Theme.Reply"
         tools:targetApi="31">
         <activity
-            android:name="com.rD227.com.rD227.BToothFstm.ui.MainActivity"
+            android:name="com.rD227.bToothFstm.ui.MainActivity"
             android:exported="true"
             android:label="@string/app_name"
             android:theme="@style/Theme.Reply">
