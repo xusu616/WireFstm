@@ -1,134 +1,117 @@
-/*
- * Copyright 2022 The Android Open Source Project
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     https://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
 package com.example.reply.ui
 
-import androidx.compose.foundation.layout.Column
+import android.content.res.Configuration.UI_MODE_NIGHT_NO
+import android.content.res.Configuration.UI_MODE_NIGHT_YES
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Article
-import androidx.compose.material.icons.filled.Inbox
-import androidx.compose.material.icons.filled.People
-import androidx.compose.material.icons.outlined.ChatBubbleOutline
+import androidx.compose.material.icons.filled.BluetoothSearching
+import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Terminal
+import androidx.compose.material.icons.outlined.BluetoothSearching
+import androidx.compose.material.icons.outlined.History
+import androidx.compose.material.icons.outlined.Terminal
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.tooling.preview.Preview
 import com.example.reply.R
+import com.example.reply.ui.screens.CommandScreen
+import com.example.reply.ui.screens.LogScreen
+import com.example.reply.ui.screens.ScanScreen
+import com.example.reply.ui.theme.AppTheme
 
-@Composable
-fun ReplyApp(
-    replyHomeUIState: ReplyHomeUIState,
-    closeDetailScreen: () -> Unit = {},
-    navigateToDetail: (Long) -> Unit = {}
+sealed class AppScreen(
+    val route: String,
+    val labelRes: Int,
+    val selectedIcon: ImageVector,
+    val unselectedIcon: ImageVector
 ) {
-    ReplyAppContent(
-        replyHomeUIState = replyHomeUIState,
-        closeDetailScreen = closeDetailScreen,
-        navigateToDetail = navigateToDetail
+    object Scan : AppScreen(
+        route = "scan",
+        labelRes = R.string.nav_scan,
+        selectedIcon = Icons.Filled.BluetoothSearching,
+        unselectedIcon = Icons.Outlined.BluetoothSearching
+    )
+    object Control : AppScreen(
+        route = "control",
+        labelRes = R.string.nav_control,
+        selectedIcon = Icons.Filled.Terminal,
+        unselectedIcon = Icons.Outlined.Terminal
+    )
+    object Log : AppScreen(
+        route = "log",
+        labelRes = R.string.nav_log,
+        selectedIcon = Icons.Filled.History,
+        unselectedIcon = Icons.Outlined.History
     )
 }
 
+val bottomNavScreens = listOf(AppScreen.Scan, AppScreen.Control, AppScreen.Log)
+
 @Composable
-fun ReplyAppContent(
-    modifier: Modifier = Modifier,
-    replyHomeUIState: ReplyHomeUIState,
-    closeDetailScreen: () -> Unit,
-    navigateToDetail: (Long) -> Unit,
-) {
+fun McuLinkApp() {
+    var currentScreen by rememberSaveable { mutableStateOf(AppScreen.Scan.route) }
 
-    val selectedDestination = remember { mutableStateOf(ReplyRoute.INBOX) }
-
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-    ) {
-
-        if (selectedDestination.value == ReplyRoute.INBOX) {
-            ReplyInboxScreen(
-                replyHomeUIState = replyHomeUIState,
-                closeDetailScreen = closeDetailScreen,
-                navigateToDetail = navigateToDetail,
-                modifier = Modifier.weight(1f)
-            )
-        } else {
-            EmptyComingSoon(modifier = Modifier.weight(1f))
-        }
-
-        NavigationBar(modifier = Modifier.fillMaxWidth()) {
-            TOP_LEVEL_DESTINATIONS.forEach { replyDestination ->
-                NavigationBarItem(
-                    selected = selectedDestination.value == replyDestination.route,
-                    onClick = { selectedDestination.value = replyDestination.route },
-                    icon = {
-                        Icon(
-                            imageVector = replyDestination.selectedIcon,
-                            contentDescription = stringResource(id = replyDestination.iconTextId)
+    Scaffold(
+        bottomBar = {
+            NavigationBar(
+                containerColor = MaterialTheme.colorScheme.surface,
+                tonalElevation = androidx.compose.ui.unit.Dp(3f)
+            ) {
+                bottomNavScreens.forEach { screen ->
+                    val selected = currentScreen == screen.route
+                    NavigationBarItem(
+                        selected = selected,
+                        onClick = { currentScreen = screen.route },
+                        icon = {
+                            Icon(
+                                imageVector = if (selected) screen.selectedIcon else screen.unselectedIcon,
+                                contentDescription = stringResource(screen.labelRes)
+                            )
+                        },
+                        label = {
+                            Text(
+                                text = stringResource(screen.labelRes),
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal
+                            )
+                        },
+                        colors = NavigationBarItemDefaults.colors(
+                            indicatorColor = MaterialTheme.colorScheme.primaryContainer,
+                            selectedIconColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                            selectedTextColor = MaterialTheme.colorScheme.primary,
+                            unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                            unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant
                         )
-                    }
-                )
+                    )
+                }
             }
+        }
+    ) { _ ->
+        when (currentScreen) {
+            AppScreen.Scan.route -> ScanScreen(modifier = Modifier.fillMaxSize())
+            AppScreen.Control.route -> CommandScreen(connectedDevice = "MCU-STM32-01", modifier = Modifier.fillMaxSize())
+            AppScreen.Log.route -> LogScreen(modifier = Modifier.fillMaxSize())
         }
     }
 }
 
-
-object ReplyRoute {
-    const val INBOX = "Inbox"
-    const val ARTICLES = "Articles"
-    const val DM = "DirectMessages"
-    const val GROUPS = "Groups"
+@Preview(uiMode = UI_MODE_NIGHT_NO, showBackground = true, name = "Light")
+@Preview(uiMode = UI_MODE_NIGHT_YES, showBackground = true, name = "Dark")
+@Composable
+private fun McuLinkAppPreview() {
+    AppTheme(dynamicColor = false) { McuLinkApp() }
 }
-
-data class ReplyTopLevelDestination(
-    val route: String,
-    val selectedIcon: ImageVector,
-    val unselectedIcon: ImageVector,
-    val iconTextId: Int
-)
-
-val TOP_LEVEL_DESTINATIONS = listOf(
-    ReplyTopLevelDestination(
-        route = ReplyRoute.INBOX,
-        selectedIcon = Icons.Default.Inbox,
-        unselectedIcon = Icons.Default.Inbox,
-        iconTextId = R.string.tab_inbox
-    ),
-    ReplyTopLevelDestination(
-        route = ReplyRoute.ARTICLES,
-        selectedIcon = Icons.Default.Article,
-        unselectedIcon = Icons.Default.Article,
-        iconTextId = R.string.tab_article
-    ),
-    ReplyTopLevelDestination(
-        route = ReplyRoute.DM,
-        selectedIcon = Icons.Outlined.ChatBubbleOutline,
-        unselectedIcon = Icons.Outlined.ChatBubbleOutline,
-        iconTextId = R.string.tab_dm
-    ),
-    ReplyTopLevelDestination(
-        route = ReplyRoute.GROUPS,
-        selectedIcon = Icons.Default.People,
-        unselectedIcon = Icons.Default.People,
-        iconTextId = R.string.tab_groups
-    )
-)
