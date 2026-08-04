@@ -34,7 +34,7 @@ import androidx.compose.material.icons.filled.BluetoothSearching
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.SignalCellularAlt
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -129,7 +129,12 @@ fun ScanScreen(
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 items(viewModel.devices) { device ->
-                    DeviceCard(device = device)
+                    DeviceCard(
+                        device = device,
+                        isPairing = viewModel.pairingAddress == device.address,
+                        onConnect = { viewModel.connectDevice(device) },
+                        onDisconnect = { viewModel.disconnectDevice() }
+                    )
                 }
             }
         }
@@ -201,7 +206,12 @@ private fun ScanControlCard(
 }
 
 @Composable
-private fun DeviceCard(device: BleDevice) {
+private fun DeviceCard(
+    device: BleDevice,
+    isPairing: Boolean = false,
+    onConnect: () -> Unit = {},
+    onDisconnect: () -> Unit = {}
+) {
     Card(
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(
@@ -278,15 +288,21 @@ private fun DeviceCard(device: BleDevice) {
                     )
                 }
             }
-            if (device.isConnected) {
+            if (isPairing) {
+                // 配对中：显示转圈
+                CircularProgressIndicator(
+                    modifier = Modifier.size(36.dp),
+                    strokeWidth = 3.dp
+                )
+            } else if (device.isConnected) {
                 OutlinedButton(
-                    onClick = {},
+                    onClick = onDisconnect,
                     colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
                 ) {
                     Text(stringResource(R.string.disconnect))
                 }
             } else {
-                Button(onClick = {}) {
+                Button(onClick = onConnect) {
                     Text(stringResource(R.string.connect))
                 }
             }
