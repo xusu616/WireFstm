@@ -34,6 +34,7 @@ import androidx.compose.material.icons.filled.BluetoothSearching
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.SignalCellularAlt
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -60,43 +61,61 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.rD227.bToothFstm.R
-import com.rD227.bToothFstm.data.ScanData
 import com.rD227.bToothFstm.data.ScanData.BleDevice
 import com.rD227.bToothFstm.ui.theme.AppTheme
 import com.rD227.bToothFstm.viewmodel.ScanViewModel
 
-@OptIn(ExperimentalMaterial3Api::class)
+// 有状态外壳：从 ViewModel 读状态、发起权限请求，然后交给纯 UI 渲染
 @Composable
 fun ScanScreen(
     modifier: Modifier = Modifier,
     viewModel: ScanViewModel = viewModel()
 ) {
-    // launcher 在 Composable 里声明，结果通知 ViewModel
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { result ->
         viewModel.onPermissionResult(result.values.all { it })
     }
 
-    // 扫描按钮的行为：有权限直接扫，没有权限先申请
-    val onToggleScan = {
-        if (viewModel.isScanning) {
-            viewModel.stopScan()
-        } else if (viewModel.hasPermission) {
-            viewModel.startScan()
-        } else {
-            val permissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                arrayOf(
-                    Manifest.permission.BLUETOOTH_SCAN,
-                    Manifest.permission.BLUETOOTH_CONNECT
-                )
+    ScanScreenContent(
+        modifier = modifier,
+        isScanning = viewModel.isScanning,
+        devices = viewModel.devices,
+        pairingAddress = viewModel.pairingAddress,
+        onToggleScan = {
+            if (viewModel.isScanning) {
+                viewModel.stopScan()
+            } else if (viewModel.hasPermission) {
+                viewModel.startScan()
             } else {
-                arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
+                val permissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    arrayOf(
+                        Manifest.permission.BLUETOOTH_SCAN,
+                        Manifest.permission.BLUETOOTH_CONNECT
+                    )
+                } else {
+                    arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
+                }
+                permissionLauncher.launch(permissions)
             }
-            permissionLauncher.launch(permissions)
-        }
-    }
+        },
+        onConnect = { viewModel.connectDevice(it) },
+        onDisconnect = { viewModel.disconnectDevice() }
+    )
+}
 
+// 纯 UI：不依赖 ViewModel，只接收普通参数，可直接用于 Preview
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ScanScreenContent(
+    modifier: Modifier = Modifier,
+    isScanning: Boolean,
+    devices: List<BleDevice>,
+    pairingAddress: String?,
+    onToggleScan: () -> Unit,
+    onConnect: (BleDevice) -> Unit,
+    onDisconnect: () -> Unit
+) {
     Scaffold(
         topBar = {
             TopAppBar(
@@ -120,20 +139,20 @@ fun ScanScreen(
                 .padding(innerPadding)
         ) {
             ScanControlCard(
-                isScanning = viewModel.isScanning,
-                deviceCount = viewModel.devices.size,
+                isScanning = isScanning,
+                deviceCount = devices.size,
                 onToggleScan = onToggleScan
             )
             LazyColumn(
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                items(viewModel.devices) { device ->
+                items(devices) { device ->
                     DeviceCard(
                         device = device,
-                        isPairing = viewModel.pairingAddress == device.address,
-                        onConnect = { viewModel.connectDevice(device) },
-                        onDisconnect = { viewModel.disconnectDevice() }
+                        isPairing = pairingAddress == device.address,
+                        onConnect = { onConnect(device) },
+                        onDisconnect = onDisconnect
                     )
                 }
             }
@@ -321,5 +340,18 @@ private fun signalColor(rssi: Int) = when {
 @Preview(showBackground = true, uiMode = android.content.res.Configuration.UI_MODE_NIGHT_YES, name = "Scan — Dark")
 @Composable
 private fun ScanScreenPreview() {
-    AppTheme(dynamicColor = false) { ScanScreen() }
+    AppTheme(dynamicColor = false) {
+        ScanScreenContent(
+            isScanning = true,
+            devices = listOf(
+                BleDevice("MCU-STM32-01", "AA:BB:CC:DD:EE:01", -55, isConnected = true, isPaired = true),
+                BleDevice("HC-05 Module", "AA:BB:CC:DD:EE:02", -72, isPaired = true),
+                BleDevice("ESP32-DevKit", "AA:BB:CC:DD:EE:03", -88),
+            ),
+            pairingAddress = "AA:BB:CC:DD:EE:03",
+            onToggleScan = {},
+            onConnect = {},
+            onDisconnect = {}
+        )
+    }
 }
