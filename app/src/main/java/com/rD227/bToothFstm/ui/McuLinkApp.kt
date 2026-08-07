@@ -1,8 +1,7 @@
 package com.rD227.bToothFstm.ui
 
-import android.content.res.Configuration.UI_MODE_NIGHT_NO
-import android.content.res.Configuration.UI_MODE_NIGHT_YES
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BluetoothSearching
 import androidx.compose.material.icons.filled.History
@@ -26,12 +25,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.tooling.preview.Preview
 import com.rD227.bToothFstm.R
 import com.rD227.bToothFstm.ui.screens.CommandScreen
 import com.rD227.bToothFstm.ui.screens.LogScreen
 import com.rD227.bToothFstm.ui.screens.ScanScreen
-import com.rD227.bToothFstm.ui.theme.AppTheme
 
 sealed class AppScreen(
     val route: String,
@@ -100,18 +97,16 @@ fun McuLinkApp() {
                 }
             }
         }
-    ) { _ ->
+    ) { innerPadding ->
+        val screenModifier = Modifier
+            .fillMaxSize()
+            .padding(innerPadding)
         when (currentScreen) {
-            AppScreen.Scan.route -> ScanScreen(modifier = Modifier.fillMaxSize())
-            AppScreen.Control.route -> CommandScreen(connectedDevice = "MCU-STM32-01", modifier = Modifier.fillMaxSize())
-            AppScreen.Log.route -> LogScreen(modifier = Modifier.fillMaxSize())
+            AppScreen.Scan.route -> ScanScreen(modifier = screenModifier)
+            AppScreen.Control.route -> CommandScreen(connectedDevice = "MCU-STM32-01", modifier = screenModifier)
+            AppScreen.Log.route -> LogScreen(modifier = screenModifier)
         }
     }
 }
 
-@Preview(uiMode = UI_MODE_NIGHT_NO, showBackground = true, name = "Light")
-@Preview(uiMode = UI_MODE_NIGHT_YES, showBackground = true, name = "Dark")
-@Composable
-private fun McuLinkAppPreview() {
-    AppTheme(dynamicColor = false) { McuLinkApp() }
-}
+
