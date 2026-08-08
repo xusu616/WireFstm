@@ -34,6 +34,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -41,6 +42,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
+//import androidx.compose.ui.tooling.preview.Preview
+//import com.rD227.bToothFstm.ui.theme.AppTheme
+//用于注释掉的preview，和preview都不要删掉
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -81,7 +85,7 @@ val bottomNavScreens = listOf(AppScreen.Scan, AppScreen.Control, AppScreen.Log)
 @Composable
 fun McuLinkApp() {
     var currentScreen by rememberSaveable { mutableStateOf(AppScreen.Scan.route) }
-    var selectedIndex by rememberSaveable { mutableStateOf(0) }
+    var selectedIndex by rememberSaveable { mutableIntStateOf(0) }
     Scaffold(
         bottomBar = {
             BoxWithConstraints {
@@ -108,7 +112,7 @@ fun McuLinkApp() {
                     Box(
                         modifier = Modifier
                             .offset { androidx.compose.ui.unit.IntOffset(indicatorOffsetX.roundToPx(), 0) }
-                            .padding(horizontal = 4.dp)
+                            .padding(horizontal = 8.dp)
                             .size(width = itemWidth - 16.dp, height = 45.dp)
                             .align(Alignment.CenterStart)
                             .background(
@@ -150,7 +154,7 @@ fun McuLinkApp() {
                                         indication = null
                                     ) {
                                         selectedIndex = index
-                                        currentScreen = screen.route
+                                        //currentScreen = screen.route
                                     },
                                 horizontalAlignment = Alignment.CenterHorizontally,
                                 verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center
@@ -193,3 +197,82 @@ fun McuLinkApp() {
         }
     }
 }
+
+/**
+@Preview(showBackground = true)
+@Composable
+fun BottomBarPreview() {
+    AppTheme {
+        var selectedIndex by remember { mutableStateOf(0) }
+        BoxWithConstraints {
+            val totalWidth = maxWidth
+            val itemCount = bottomNavScreens.size
+            val itemWidth = totalWidth / itemCount
+
+            //icon x bounce
+            val indicatorOffsetX by animateDpAsState(
+                targetValue = itemWidth * selectedIndex,
+                animationSpec = spring(
+                    dampingRatio = Spring.DampingRatioMediumBouncy,
+                    stiffness = Spring.StiffnessLow
+                ),
+                label = "indicatorOffset"
+            )
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(MaterialTheme.colorScheme.surface)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .offset { androidx.compose.ui.unit.IntOffset(indicatorOffsetX.roundToPx(), 0) }
+                        .size(width = itemWidth - 16.dp, height = 45.dp)
+                        .align(Alignment.CenterStart)
+                        .padding(horizontal = 8.dp)
+                        .background(
+                            color = MaterialTheme.colorScheme.surfaceVariant,
+                            shape = RoundedCornerShape(16.dp)
+                        )
+                )
+                Row(modifier = Modifier.fillMaxWidth()) {
+                    bottomNavScreens.forEachIndexed { index, screen ->
+                        val selected = index == selectedIndex
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(64.dp)
+                                //.padding(horizontal = 4.dp)
+                                .clickable(
+                                    interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                                    indication = null
+                                ) { selectedIndex = index },
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center
+                        ) {
+                            Icon(
+                                imageVector = if (selected) screen.selectedIcon else screen.unselectedIcon,
+                                contentDescription = stringResource(screen.labelRes),
+                                tint = if (selected)
+                                    MaterialTheme.colorScheme.onPrimaryContainer
+                                else
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                text = stringResource(screen.labelRes),
+                                style = MaterialTheme.typography.labelMedium,
+                                color = if (selected)
+                                    MaterialTheme.colorScheme.primary
+                                else
+                                    MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+ **/
