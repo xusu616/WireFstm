@@ -154,7 +154,7 @@ fun McuLinkApp() {
                                         indication = null
                                     ) {
                                         selectedIndex = index
-                                        //currentScreen = screen.route
+                                        currentScreen = screen.route
                                     },
                                 horizontalAlignment = Alignment.CenterHorizontally,
                                 verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center
@@ -192,7 +192,7 @@ fun McuLinkApp() {
             .padding(innerPadding)
         when (currentScreen) {
             AppScreen.Scan.route -> ScanScreen(modifier = screenModifier)
-            AppScreen.Control.route -> CommandScreen(connectedDevice = "MCU-STM32-01", modifier = screenModifier)
+            AppScreen.Control.route -> CommandScreen(modifier = screenModifier)
             AppScreen.Log.route -> LogScreen(modifier = screenModifier)
         }
     }
