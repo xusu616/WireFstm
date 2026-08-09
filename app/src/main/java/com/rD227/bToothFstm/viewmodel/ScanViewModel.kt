@@ -18,6 +18,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.os.Build
+import android.util.Log
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -42,8 +43,16 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
     var bleCharUuid    by mutableStateOf("0000FFE1-0000-1000-8000-00805F9B34FB")
     var sppUuid        by mutableStateOf("00001101-0000-1000-8000-00805F9B34FB")
 
+    //private val TAG = "ScanViewModel"
+    private val TAG = ScanViewModel::class.java.simpleName
+
     private val bluetoothAdapter: BluetoothAdapter? =
-        (application.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager).adapter
+        (application.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager)?.adapter
+
+    init {
+        if (bluetoothAdapter == null) Log.e(TAG, "FATAL: BluetoothAdapter not found")
+    }
+
 
     var hasPermission by mutableStateOf(false)
         private set

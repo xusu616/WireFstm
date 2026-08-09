@@ -1,9 +1,14 @@
 package com.rD227.bToothFstm.ui.screens
 
 import android.Manifest
+import android.R.attr.centerX
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.BoundsTransform
+import androidx.compose.animation.core.EaseInCirc
+import androidx.compose.animation.core.EaseInOut
+import androidx.compose.animation.core.EaseOutBounce
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -28,6 +33,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.BluetoothSearching
 import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.BluetoothConnected
 import androidx.compose.material.icons.filled.BluetoothSearching
@@ -50,12 +56,17 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.composed
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
@@ -211,15 +222,62 @@ private fun ScanControlCard(
                     color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
                 )
             }
-            FilledTonalButton(onClick = onToggleScan) {
+            val infiniteTransition = rememberInfiniteTransition(label = "scan_animation")
+            val alphaScanAnimation by infiniteTransition.animateFloat(
+                initialValue = 0.9f, targetValue = 1f,
+                animationSpec = infiniteRepeatable(tween(500, easing = LinearEasing), RepeatMode.Reverse),
+                label = "alpha"
+            )
+            FilledTonalButton(
+                    onClick = onToggleScan,
+                    modifier = Modifier
+                        .alpha(if (isScanning) alphaScanAnimation else 1f)
+                        .sweepEffect(isScanning)
+                ,
+                ) {
                 Icon(
-                    imageVector = if (isScanning) Icons.Default.Close else Icons.Default.BluetoothSearching,
+                    imageVector = if (isScanning) Icons.Default.Close else Icons.AutoMirrored.Filled.BluetoothSearching,
                     contentDescription = null,
                     modifier = Modifier.size(16.dp)
                 )
                 Spacer(Modifier.width(6.dp))
                 Text(if (isScanning) stringResource(R.string.scan_stop) else stringResource(R.string.scan_start))
             }
+        }
+    }
+}
+
+fun Modifier.sweepEffect(active: Boolean) : Modifier {
+    if (!active ) return this
+    return composed {
+        val infiniteTransition = rememberInfiniteTransition(label = "sweep_effect")
+        val sweepLight by infiniteTransition.animateFloat(
+            initialValue = 0f,
+            targetValue = 1f,
+            animationSpec = infiniteRepeatable(
+                tween(1000,
+                    easing = EaseInOut
+                ),
+                RepeatMode.Reverse
+            ),
+            label = "sweep_light"
+        )
+
+        val primaryColor = Color.White
+        val neutralColor = MaterialTheme.colorScheme.primaryContainer
+        this.drawWithContent {
+            drawContent()
+            val bandWidth = size.width * 0.3f
+            val centerX = (size.width - bandWidth) * sweepLight + bandWidth / 2
+            drawRect(
+                brush = Brush.linearGradient(
+                    colors=listOf(Color.Transparent,neutralColor,primaryColor,neutralColor, Color.Transparent),
+                    start = Offset(centerX - bandWidth , 0f),
+                    end = Offset(centerX + bandWidth , 0f),
+                    tileMode = TileMode.Clamp
+                ),
+                alpha = 0.2f
+            )
         }
     }
 }
