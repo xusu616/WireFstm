@@ -1,10 +1,22 @@
 package com.rD227.bToothFstm.ui.screens
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -43,7 +55,6 @@ import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -51,7 +62,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -59,6 +69,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -142,7 +154,6 @@ fun CommandScreenContent(
     )
     var showDeviceSheet by remember { mutableStateOf(false) }
     var showUuidDialog by remember { mutableStateOf(false) }
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     Scaffold(
         topBar = {
@@ -190,20 +201,12 @@ fun CommandScreenContent(
             )
         }
 
-        if (showDeviceSheet) {
-            ModalBottomSheet(
-                onDismissRequest = { showDeviceSheet = false },
-                sheetState = sheetState
-            ) {
-                PairedDeviceSheet(
-                    pairedDevices = pairedDevices,
-                    onConnect = { device ->
-                        onConnect(device)
-                        showDeviceSheet = false
-                    }
-                )
-            }
-        }
+        DevicesSheet(
+            devices = pairedDevices,
+            showDeviceSheet = showDeviceSheet,
+            onDismiss = { showDeviceSheet = false },
+            onConnect = onConnect
+        )
 
         if (showUuidDialog) {
             UuidConfigDialog(
@@ -245,7 +248,9 @@ private fun DeviceStatusBanner(
                     contentDescription = null,
                     tint = if (isConnected) MaterialTheme.colorScheme.onSecondary
                            else MaterialTheme.colorScheme.onError,
-                    modifier = Modifier.padding(8.dp).size(24.dp)
+                    modifier = Modifier
+                        .padding(8.dp)
+                        .size(24.dp)
                 )
             }
             Spacer(Modifier.width(14.dp))
@@ -290,44 +295,132 @@ private fun DeviceStatusBanner(
     }
 }
 
-// ── PairedDeviceSheet ─────────────────────────────────────────────────────────
+// ── DevicesSheet ──────────────────────────────────────────────────────────────
 @Composable
-private fun PairedDeviceSheet(pairedDevices: List<BleDevice>, onConnect: (BleDevice) -> Unit) {
-    Column(modifier = Modifier.padding(bottom = 32.dp)) {
-        Text(
-            text = "配对设备",
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.SemiBold,
-            modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp)
-        )
-        if (pairedDevices.isEmpty()) {
-            Text("暂无配对设备", style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp))
-        }
-        LazyColumn(contentPadding = PaddingValues(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(pairedDevices) { device ->
-                ElevatedCard(shape = RoundedCornerShape(12.dp),
-                    colors = CardDefaults.elevatedCardColors(
-                        containerColor = if (device.isConnected)
-                            MaterialTheme.colorScheme.primaryContainer
-                        else MaterialTheme.colorScheme.surfaceVariant),
-                    modifier = Modifier.fillMaxWidth()) {
-                    Row(modifier = Modifier.padding(12.dp),
-                        verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
-                            Text(device.name, style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.Medium)
-                            Text(device.address, style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+fun DevicesSheet(
+    devices: List<BleDevice>,
+    showDeviceSheet: Boolean,
+    onDismiss: () -> Unit,
+    onConnect: (BleDevice) -> Unit
+){
+    AnimatedVisibility(
+        showDeviceSheet,
+        enter = slideInVertically(
+            initialOffsetY = { it },
+            animationSpec = spring(
+                dampingRatio = Spring.DampingRatioMediumBouncy,
+                stiffness = Spring.StiffnessLow
+            )
+        ) + fadeIn(spring(dampingRatio = Spring.DampingRatioMediumBouncy))
+        ,
+        exit = slideOutVertically(
+            targetOffsetY = { it },
+            animationSpec = spring(
+                dampingRatio = Spring.DampingRatioMediumBouncy,
+                stiffness = Spring.StiffnessLow
+            )
+        ) + fadeOut(spring(dampingRatio = Spring.DampingRatioMediumBouncy))
+
+    ) {
+        Box(Modifier.fillMaxSize()){
+            Box(Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.3f))
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = onDismiss
+                    )
+            )
+
+            val fraction = if (devices.size <=5 && devices.isNotEmpty()) 0.1 * devices.size
+                else if (devices.isEmpty()) 0.2
+                else 0.5
+
+            Surface(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .fillMaxHeight(fraction.toFloat()),
+                shape = RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp),
+                color = MaterialTheme.colorScheme.surface,
+                //tonalElevation = 4.dp what's this
+            ) {
+                Column(Modifier.fillMaxSize()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = 0.dp, top = 0.dp, end = 0.dp, bottom = 0.dp)
+                            //.background(MaterialTheme.colorScheme.primaryContainer)
+                            .clickable(onClick = onDismiss)
+                        ,
+                        contentAlignment = Alignment.Center
+                    ){
+                        Box(
+                            modifier = Modifier
+                                .width(32.dp)
+                                .padding(top = 4.dp)
+                                .height(8.dp)
+                                .clip(RoundedCornerShape(4.dp))
+                                .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f))
+                        )
+                    }
+
+                    if (devices.isEmpty()) {
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            Alignment.Center
+                        ) {
+                            Text(
+                                stringResource(R.string.NoDevicesWarning),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
                         }
-                        if (device.isConnected) {
-                            Text("已连接", style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.primary)
-                        } else {
-                            Button(onClick = { onConnect(device) }) {
-                                Text(stringResource(R.string.connect))
+                    } else {
+                        LazyColumn(
+                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            items(devices) { device ->
+                                ElevatedCard(
+                                    shape = RoundedCornerShape(12.dp),
+                                    colors = CardDefaults.elevatedCardColors(
+                                        containerColor = if (device.isConnected)
+                                            MaterialTheme.colorScheme.primaryContainer
+                                        else MaterialTheme.colorScheme.surfaceVariant
+                                    ),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(12.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(Modifier.weight(1f)) {
+                                            Text(
+                                                device.name,
+                                                style = MaterialTheme.typography.titleSmall,
+                                                fontWeight = FontWeight.Medium
+                                            )
+                                            Text(
+                                                device.address,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                        if (device.isConnected) {
+                                            Text(
+                                                "已连接",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.primary
+                                            )
+                                        } else {
+                                            Button(onClick = { onConnect(device); onDismiss() }) {
+                                                Text(stringResource(R.string.connect))
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -361,7 +454,9 @@ private fun QuickCommandCard(cmd: QuickCommand, onClick: () -> Unit) {
         colors = CardDefaults.elevatedCardColors(
             containerColor = if (cmd.isDestructive) MaterialTheme.colorScheme.errorContainer
                              else MaterialTheme.colorScheme.surfaceVariant)) {
-        Column(modifier = Modifier.fillMaxWidth().padding(vertical = 14.dp, horizontal = 10.dp),
+        Column(modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 14.dp, horizontal = 10.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Icon(imageVector = cmd.icon, contentDescription = null,
@@ -433,8 +528,10 @@ private fun UuidConfigDialog(
         dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } }
     )
 }
-
+/**
 // ── Previews ──────────────────────────────────────────────────────────────────
+
+
 @Preview(showBackground = true, name = "Control — Light")
 @Preview(showBackground = true, uiMode = android.content.res.Configuration.UI_MODE_NIGHT_YES, name = "Control — Dark")
 @Composable
@@ -461,6 +558,7 @@ private fun CommandScreenPreview() {
         )
     }
 }
+**/
 
 @Preview(showBackground = true, name = "Control — No Device")
 @Composable
@@ -480,6 +578,24 @@ private fun CommandScreenNoDevicePreview() {
             bleCharUuid    = "0000FFE1-0000-1000-8000-00805F9B34FB",
             sppUuid        = "00001101-0000-1000-8000-00805F9B34FB",
             onUuidChange = { _, _, _ -> }
+        )
+    }
+}
+
+val emptyList = listOf<BleDevice>()
+
+@Preview
+@Composable
+fun DeviceCardPreview(
+    device: BleDevice = BleDevice("MCU-STM32-01", "AA:BB:CC:DD:EE:01", -55,
+        isConnected = true, isPaired = true, deviceType = DeviceType.BLE),
+) {
+    AppTheme() {
+        DevicesSheet(
+            devices = listOf(device),
+            showDeviceSheet = true,
+            onDismiss = { },
+            onConnect = { }
         )
     }
 }

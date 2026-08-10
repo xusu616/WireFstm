@@ -394,6 +394,7 @@ private fun signalColor(rssi: Int) = when {
     else -> MaterialTheme.colorScheme.error
 }
 
+
 @Preview(showBackground = true, name = "Scan — Light")
 @Preview(showBackground = true, uiMode = android.content.res.Configuration.UI_MODE_NIGHT_YES, name = "Scan — Dark")
 @Composable
