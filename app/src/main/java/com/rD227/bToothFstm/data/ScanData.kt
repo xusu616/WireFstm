@@ -9,6 +9,6 @@ class ScanData {
         val rssi: Int,
         val isConnected: Boolean = false,
         val isPaired: Boolean = false,
-        val deviceType: DeviceType = DeviceType.CLASSIC
+        val deviceType: DeviceType
     )
 }
