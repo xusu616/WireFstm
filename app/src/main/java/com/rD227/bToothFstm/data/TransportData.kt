@@ -2,7 +2,6 @@ package com.rD227.bToothFstm.data
 
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothGattCharacteristic
-import com.rD227.bToothFstm.data.ScanData.DeviceType
 import java.util.UUID
 
 enum class ConnectionType { BLE, CLASSIC }
@@ -76,6 +75,8 @@ data class LogEntry(
 
 enum class SendFailureReason {
     EMPTY_COMMAND,
+    COMMAND_TOO_LARGE,
+    QUEUE_FULL,
     NOT_CONNECTED,
     DISCONNECTED,
     WRITE_FAILED,
@@ -98,6 +99,9 @@ sealed class SendResult {
 fun frameCommand(text: String): ByteArray =
     (text.trimEnd('\r', '\n') + "\r\n").toByteArray(Charsets.UTF_8)
 
+fun bleChunkSize(negotiatedMtu: Int): Int =
+    minOf(maxOf(1, negotiatedMtu - 3), 512)
+
 fun chunkPayload(payload: ByteArray, maxChunkSize: Int): List<ByteArray> {
     if (payload.isEmpty()) return emptyList()
     val chunkSize = maxOf(1, maxChunkSize)
@@ -119,10 +123,14 @@ fun selectBleWriteType(properties: Int): Int? = when {
     else -> null
 }
 
-fun resolveDeviceType(deviceType: Int, discoveredType: DeviceType? = null): DeviceType = when (deviceType) {
-    BluetoothDevice.DEVICE_TYPE_LE -> DeviceType.BLE
-    BluetoothDevice.DEVICE_TYPE_CLASSIC -> DeviceType.CLASSIC
-    BluetoothDevice.DEVICE_TYPE_DUAL -> discoveredType ?: DeviceType.BLE
-    BluetoothDevice.DEVICE_TYPE_UNKNOWN -> discoveredType ?: DeviceType.CLASSIC
-    else -> discoveredType ?: DeviceType.CLASSIC
+fun resolveDeviceType(
+    deviceType: Int,
+    discoveredType: ConnectionType? = null,
+    scanSource: ConnectionType? = null
+): ConnectionType = when (deviceType) {
+    BluetoothDevice.DEVICE_TYPE_LE -> ConnectionType.BLE
+    BluetoothDevice.DEVICE_TYPE_CLASSIC -> ConnectionType.CLASSIC
+    BluetoothDevice.DEVICE_TYPE_DUAL -> discoveredType ?: scanSource ?: ConnectionType.BLE
+    BluetoothDevice.DEVICE_TYPE_UNKNOWN -> discoveredType ?: scanSource ?: ConnectionType.CLASSIC
+    else -> discoveredType ?: scanSource ?: ConnectionType.CLASSIC
 }

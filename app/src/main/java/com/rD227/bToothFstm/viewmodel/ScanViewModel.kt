@@ -33,7 +33,6 @@ import com.rD227.bToothFstm.data.ConnectionUiState
 import com.rD227.bToothFstm.data.LogDirection
 import com.rD227.bToothFstm.data.LogEntry
 import com.rD227.bToothFstm.data.ScanData.BleDevice
-import com.rD227.bToothFstm.data.ScanData.DeviceType
 import com.rD227.bToothFstm.data.SendFailureReason
 import com.rD227.bToothFstm.data.SendResult
 import com.rD227.bToothFstm.data.TransportConfig
@@ -41,6 +40,7 @@ import com.rD227.bToothFstm.data.TransportError
 import com.rD227.bToothFstm.data.TransportErrorKind
 import com.rD227.bToothFstm.data.UuidField
 import com.rD227.bToothFstm.data.UuidUpdateResult
+import com.rD227.bToothFstm.data.bleChunkSize
 import com.rD227.bToothFstm.data.chunkPayload
 import com.rD227.bToothFstm.data.frameCommand
 import com.rD227.bToothFstm.data.resolveDeviceType
@@ -106,6 +106,7 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
     private var classicScanActive = false
     private var classicReceiverRegistered = false
     private var bondReceiverRegistered = false
+    private var scanTimeoutJob: Job? = null
 
     @Volatile
     private var connectionGeneration = 0L
@@ -117,6 +118,7 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
     private var bleWriteType: Int? = null
     private var negotiatedMtu = DEFAULT_MTU
     private var bleDecoder: Utf8StreamDecoder? = null
+    private var connectionTimeoutJob: Job? = null
     private var setupTimeoutJob: Job? = null
     private var bleChunkTimeoutJob: Job? = null
     private val bleSendQueue = ArrayDeque<PendingSend>()
@@ -127,6 +129,8 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
     private var classicConnectJob: Job? = null
     private var classicWriterJob: Job? = null
     private var classicReaderJob: Job? = null
+    private var classicSendTimeoutJob: Job? = null
+    private var classicSendTimedOut = false
     private var classicDecoder: Utf8StreamDecoder? = null
 
     private val pendingSends = linkedMapOf<Long, PendingSend>()
@@ -232,12 +236,19 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         updateScanningState()
-        if (!started) {
+        if (started) {
+            scanTimeoutJob = viewModelScope.launch(Dispatchers.Main.immediate) {
+                delay(SCAN_TIMEOUT_MS)
+                stopScan()
+            }
+        } else {
             setIdleError(TransportErrorKind.SCAN_FAILED, "No Bluetooth scan could be started")
         }
     }
 
     fun stopScan() {
+        scanTimeoutJob?.cancel()
+        scanTimeoutJob = null
         val adapter = bluetoothAdapter
         if (bleScanActive) {
             try {
@@ -288,10 +299,7 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         stopScan()
-        val type = when (device.deviceType) {
-            DeviceType.BLE -> ConnectionType.BLE
-            DeviceType.CLASSIC -> ConnectionType.CLASSIC
-        }
+        val type = device.deviceType
         val generation = beginConnection(device.address, type)
 
         if (type == ConnectionType.BLE) {
@@ -378,40 +386,52 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
             return requestId
         }
 
-        val state = connectionState
-        if (state.phase != ConnectionPhase.CONNECTED || state.address == null || state.type == null) {
+        val payload = frameCommand(text)
+        if (payload.size > MAX_COMMAND_PAYLOAD_BYTES) {
             dispatchImmediateResult(
-                SendResult.Failed(requestId, SendFailureReason.NOT_CONNECTED, "No transport is connected"),
+                SendResult.Failed(
+                    requestId,
+                    SendFailureReason.COMMAND_TOO_LARGE,
+                    "Framed command exceeds $MAX_COMMAND_PAYLOAD_BYTES bytes"
+                ),
                 onComplete
             )
             return requestId
         }
 
-        val pending = PendingSend(
-            requestId = requestId,
-            text = text,
-            payload = frameCommand(text),
-            type = state.type,
-            address = state.address,
-            onComplete = onComplete
-        )
         viewModelScope.launch(Dispatchers.Main.immediate) {
             val current = connectionState
-            if (
-                current.phase != ConnectionPhase.CONNECTED ||
-                current.address != pending.address ||
-                current.type != pending.type
-            ) {
-                finishUntracked(
-                    pending,
+            if (current.phase != ConnectionPhase.CONNECTED || current.address == null || current.type == null) {
+                dispatchImmediateResult(
                     SendResult.Failed(
                         requestId,
                         SendFailureReason.NOT_CONNECTED,
-                        "Transport disconnected before send was queued"
-                    )
+                        "No transport is connected"
+                    ),
+                    onComplete
                 )
                 return@launch
             }
+            if (pendingSends.size >= MAX_PENDING_SENDS) {
+                dispatchImmediateResult(
+                    SendResult.Failed(
+                        requestId,
+                        SendFailureReason.QUEUE_FULL,
+                        "Send queue is full"
+                    ),
+                    onComplete
+                )
+                return@launch
+            }
+
+            val pending = PendingSend(
+                requestId = requestId,
+                text = text,
+                payload = payload,
+                type = current.type,
+                address = current.address,
+                onComplete = onComplete
+            )
             pendingSends[requestId] = pending
             when (pending.type) {
                 ConnectionType.BLE -> {
@@ -420,13 +440,22 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 ConnectionType.CLASSIC -> {
                     val channel = classicSendChannel
-                    if (channel == null || channel.trySend(pending).isFailure) {
+                    val queued = channel?.trySend(pending)
+                    if (queued == null || queued.isFailure) {
                         completeSend(
                             pending,
                             SendResult.Failed(
                                 requestId,
-                                SendFailureReason.DISCONNECTED,
-                                "Classic writer is unavailable"
+                                if (channel == null || queued?.exceptionOrNull() != null) {
+                                    SendFailureReason.DISCONNECTED
+                                } else {
+                                    SendFailureReason.QUEUE_FULL
+                                },
+                                if (channel == null || queued?.exceptionOrNull() != null) {
+                                    "Classic writer is unavailable"
+                                } else {
+                                    "Send queue is full"
+                                }
                             )
                         )
                     }
@@ -436,6 +465,10 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
         return requestId
     }
 
+    fun consumeLastSendResult(requestId: Long) {
+        if (lastSendResult?.requestId == requestId) lastSendResult = null
+    }
+
     fun clearLogs() {
         _logs.clear()
     }
@@ -443,14 +476,16 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
     private val leScanCallback = object : ScanCallback() {
         override fun onScanResult(callbackType: Int, result: ScanResult) {
             viewModelScope.launch(Dispatchers.Main.immediate) {
-                if (bleScanActive) upsertDevice(result.device, result.rssi)
+                if (bleScanActive) upsertDevice(result.device, result.rssi, ConnectionType.BLE)
             }
         }
 
         override fun onBatchScanResults(results: MutableList<ScanResult>) {
             val copies = results.toList()
             viewModelScope.launch(Dispatchers.Main.immediate) {
-                if (bleScanActive) copies.forEach { upsertDevice(it.device, it.rssi) }
+                if (bleScanActive) {
+                    copies.forEach { upsertDevice(it.device, it.rssi, ConnectionType.BLE) }
+                }
             }
         }
 
@@ -469,7 +504,7 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
                 BluetoothDevice.ACTION_FOUND -> {
                     val device = intent.bluetoothDeviceExtra() ?: return
                     val rssi = intent.getShortExtra(BluetoothDevice.EXTRA_RSSI, Short.MIN_VALUE).toInt()
-                    upsertDevice(device, rssi)
+                    upsertDevice(device, rssi, ConnectionType.CLASSIC)
                 }
                 BluetoothAdapter.ACTION_DISCOVERY_FINISHED -> {
                     classicScanActive = false
@@ -484,7 +519,10 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
         override fun onReceive(context: Context, intent: Intent) {
             if (intent.action != BluetoothDevice.ACTION_BOND_STATE_CHANGED) return
             val device = intent.bluetoothDeviceExtra() ?: return
-            val pendingAddress = pendingBondAddress ?: return
+            val pendingAddress = pendingBondAddress ?: run {
+                unregisterBondReceiver()
+                return
+            }
             val generation = pendingBondGeneration
             if (
                 device.address != pendingAddress ||
@@ -495,12 +533,14 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
             when (intent.getIntExtra(BluetoothDevice.EXTRA_BOND_STATE, BluetoothDevice.ERROR)) {
                 BluetoothDevice.BOND_BONDED -> {
                     pendingBondAddress = null
-                    upsertDevice(device, rssiFor(device.address))
+                    unregisterBondReceiver()
+                    upsertDevice(device, rssiFor(device.address), ConnectionType.CLASSIC)
                     loadPairedDevices()
                     connectClassic(device, generation)
                 }
                 BluetoothDevice.BOND_NONE -> {
                     pendingBondAddress = null
+                    unregisterBondReceiver()
                     failConnection(
                         generation,
                         TransportError(TransportErrorKind.PAIRING_FAILED, "Pairing failed or was cancelled")
@@ -565,6 +605,10 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
                     safeCloseGatt(gatt, disconnect = false)
                     return@launch
                 }
+                if (newState == BluetoothProfile.STATE_DISCONNECTED) {
+                    remoteBleDisconnected(generation, status)
+                    return@launch
+                }
                 if (status != BluetoothGatt.GATT_SUCCESS) {
                     failConnection(
                         generation,
@@ -602,7 +646,6 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
                             )
                         }
                     }
-                    BluetoothProfile.STATE_DISCONNECTED -> remoteBleDisconnected(generation)
                 }
             }
         }
@@ -724,6 +767,8 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 setupTimeoutJob?.cancel()
                 setupTimeoutJob = null
+                connectionTimeoutJob?.cancel()
+                connectionTimeoutJob = null
                 connectionState = ConnectionUiState(
                     ConnectionPhase.CONNECTED,
                     gatt.device.address,
@@ -863,7 +908,7 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
         val next = bleSendQueue.pollFirst() ?: return
         val active = ActiveBleSend(
             pending = next,
-            chunks = chunkPayload(next.payload, maxOf(1, negotiatedMtu - GATT_WRITE_OVERHEAD))
+            chunks = chunkPayload(next.payload, bleChunkSize(negotiatedMtu))
         )
         activeBleSend = active
         writeActiveBleChunk(generation)
@@ -907,6 +952,12 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
             failBleTransport(
                 generation,
                 TransportError(TransportErrorKind.SECURITY_ERROR, error.message ?: "BLE write permission denied")
+            )
+            return
+        } catch (error: IllegalArgumentException) {
+            failBleTransport(
+                generation,
+                TransportError(TransportErrorKind.WRITE_FAILED, error.message ?: "BLE write was rejected")
             )
             return
         }
@@ -979,6 +1030,8 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
     private fun connectClassic(device: BluetoothDevice, generation: Long) {
         if (generation != connectionGeneration) return
         pendingBondAddress = null
+        pendingBondGeneration = 0L
+        unregisterBondReceiver()
         connectionState = ConnectionUiState(
             ConnectionPhase.CONNECTING,
             device.address,
@@ -1052,9 +1105,11 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun startClassicIo(socket: BluetoothSocket, address: String, generation: Long) {
-        val channel = Channel<PendingSend>(Channel.UNLIMITED)
+        val channel = Channel<PendingSend>(MAX_PENDING_SENDS)
         classicSendChannel = channel
         classicDecoder = Utf8StreamDecoder()
+        connectionTimeoutJob?.cancel()
+        connectionTimeoutJob = null
         connectionState = ConnectionUiState(
             ConnectionPhase.CONNECTED,
             address,
@@ -1065,9 +1120,13 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
         classicWriterJob = viewModelScope.launch(Dispatchers.IO) {
             try {
                 for (pending in channel) {
+                    withContext(Dispatchers.Main.immediate) {
+                        startClassicSendTimeout(socket, generation)
+                    }
                     socket.outputStream.write(pending.payload)
                     socket.outputStream.flush()
                     withContext(Dispatchers.Main.immediate) {
+                        cancelClassicSendTimeout()
                         if (generation == connectionGeneration && pendingSends.containsKey(pending.requestId)) {
                             appendLog(
                                 LogDirection.SENT,
@@ -1083,6 +1142,7 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
                 throw error
             } catch (error: SecurityException) {
                 withContext(Dispatchers.Main.immediate) {
+                    cancelClassicSendTimeout()
                     if (generation == connectionGeneration) {
                         failConnection(
                             generation,
@@ -1095,12 +1155,14 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
                 }
             } catch (error: IOException) {
                 withContext(Dispatchers.Main.immediate) {
+                    val timedOut = classicSendTimedOut
+                    cancelClassicSendTimeout()
                     if (generation == connectionGeneration) {
                         failConnection(
                             generation,
                             TransportError(
-                                TransportErrorKind.WRITE_FAILED,
-                                error.message ?: "Classic write failed"
+                                if (timedOut) TransportErrorKind.WRITE_TIMEOUT else TransportErrorKind.WRITE_FAILED,
+                                error.message ?: if (timedOut) "Classic write timed out" else "Classic write failed"
                             )
                         )
                     }
@@ -1154,12 +1216,13 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
                 }
             } catch (error: IOException) {
                 withContext(Dispatchers.Main.immediate) {
+                    val timedOut = classicSendTimedOut
                     if (generation == connectionGeneration) {
                         failConnection(
                             generation,
                             TransportError(
-                                TransportErrorKind.IO_ERROR,
-                                error.message ?: "Classic read failed"
+                                if (timedOut) TransportErrorKind.WRITE_TIMEOUT else TransportErrorKind.IO_ERROR,
+                                error.message ?: if (timedOut) "Classic write timed out" else "Classic read failed"
                             )
                         )
                     }
@@ -1175,7 +1238,17 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
         failAllPending(SendFailureReason.DISCONNECTED, "Superseded by a new connection")
         markConnected(previousAddress, false)
         connectionState = ConnectionUiState(ConnectionPhase.CONNECTING, address, type)
-        return connectionGeneration
+        val generation = connectionGeneration
+        connectionTimeoutJob = viewModelScope.launch(Dispatchers.Main.immediate) {
+            delay(CONNECTION_TIMEOUT_MS)
+            if (generation == connectionGeneration && connectionState.phase != ConnectionPhase.CONNECTED) {
+                failConnection(
+                    generation,
+                    TransportError(TransportErrorKind.CONNECTION_FAILED, "Connection timed out")
+                )
+            }
+        }
+        return generation
     }
 
     private fun failConnection(generation: Long, error: TransportError) {
@@ -1213,15 +1286,41 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
         connectionState = ConnectionUiState(ConnectionPhase.ERROR, address, type, error)
     }
 
-    private fun remoteBleDisconnected(generation: Long) {
+    private fun remoteBleDisconnected(generation: Long, status: Int) {
         if (generation != connectionGeneration) return
+        val message = if (status == BluetoothGatt.GATT_SUCCESS) {
+            "BLE device disconnected"
+        } else {
+            "BLE device disconnected (GATT status $status)"
+        }
         failConnection(
             generation,
-            TransportError(TransportErrorKind.REMOTE_DISCONNECTED, "BLE device disconnected")
+            TransportError(TransportErrorKind.REMOTE_DISCONNECTED, message)
         )
     }
 
+    private fun startClassicSendTimeout(socket: BluetoothSocket, generation: Long) {
+        cancelClassicSendTimeout()
+        classicSendTimedOut = false
+        classicSendTimeoutJob = viewModelScope.launch(Dispatchers.Main.immediate) {
+            delay(CLASSIC_SEND_TIMEOUT_MS)
+            if (generation == connectionGeneration && classicSocket === socket) {
+                classicSendTimedOut = true
+                classicSendTimeoutJob = null
+                classicSocket = null
+                safeCloseSocket(socket)
+            }
+        }
+    }
+
+    private fun cancelClassicSendTimeout() {
+        classicSendTimeoutJob?.cancel()
+        classicSendTimeoutJob = null
+    }
+
     private fun closeTransportResources(disconnectGatt: Boolean) {
+        connectionTimeoutJob?.cancel()
+        connectionTimeoutJob = null
         setupTimeoutJob?.cancel()
         setupTimeoutJob = null
         bleChunkTimeoutJob?.cancel()
@@ -1245,6 +1344,8 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
         classicWriterJob = null
         classicReaderJob?.cancel()
         classicReaderJob = null
+        cancelClassicSendTimeout()
+        classicSendTimedOut = false
         val socket = classicSocket
         classicSocket = null
         safeCloseSocket(socket)
@@ -1252,6 +1353,7 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
 
         pendingBondAddress = null
         pendingBondGeneration = 0L
+        unregisterBondReceiver()
     }
 
     private fun completeSend(pending: PendingSend, result: SendResult) {
@@ -1302,7 +1404,7 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
         while (_logs.size > MAX_LOG_ENTRIES) _logs.removeAt(0)
     }
 
-    private fun upsertDevice(device: BluetoothDevice, rssi: Int) {
+    private fun upsertDevice(device: BluetoothDevice, rssi: Int, scanSource: ConnectionType) {
         val address = try {
             device.address
         } catch (_: SecurityException) {
@@ -1310,7 +1412,7 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
         }
         val existingIndex = _devices.indexOfFirst { it.address == address }
         val existing = _devices.getOrNull(existingIndex)
-        val resolvedType = safeResolvedType(device, existing?.deviceType)
+        val resolvedType = safeResolvedType(device, existing?.deviceType, scanSource)
         val isPaired = try {
             device.bondState == BluetoothDevice.BOND_BONDED
         } catch (_: SecurityException) {
@@ -1326,13 +1428,27 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
             isPaired = isPaired,
             deviceType = resolvedType
         )
-        if (existingIndex < 0) _devices.add(updated) else _devices[existingIndex] = updated
+        if (existingIndex < 0 || existing == null) {
+            if (_devices.size < MAX_DISCOVERED_DEVICES) _devices.add(updated)
+            return
+        }
+        val materiallyChanged =
+            existing.name != updated.name ||
+                existing.deviceType != updated.deviceType ||
+                existing.isPaired != updated.isPaired ||
+                existing.isConnected != updated.isConnected ||
+                kotlin.math.abs(existing.rssi - updated.rssi) >= MIN_RSSI_CHANGE_DBM
+        if (materiallyChanged) _devices[existingIndex] = updated
     }
 
-    private fun safeResolvedType(device: BluetoothDevice, discoveredType: DeviceType?): DeviceType = try {
-        resolveDeviceType(device.type, discoveredType)
+    private fun safeResolvedType(
+        device: BluetoothDevice,
+        discoveredType: ConnectionType?,
+        scanSource: ConnectionType? = null
+    ): ConnectionType = try {
+        resolveDeviceType(device.type, discoveredType, scanSource)
     } catch (_: SecurityException) {
-        discoveredType ?: DeviceType.CLASSIC
+        discoveredType ?: scanSource ?: ConnectionType.CLASSIC
     }
 
     private fun safeDeviceName(device: BluetoothDevice): String = try {
@@ -1385,6 +1501,8 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun stopScanForClear() {
+        scanTimeoutJob?.cancel()
+        scanTimeoutJob = null
         try {
             if (bleScanActive) bluetoothAdapter?.bluetoothLeScanner?.stopScan(leScanCallback)
         } catch (_: SecurityException) {
@@ -1551,10 +1669,16 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
         const val DEFAULT_RSSI = -80
         const val DEFAULT_MTU = 23
         const val REQUESTED_MTU = 517
-        const val GATT_WRITE_OVERHEAD = 3
+        const val SCAN_TIMEOUT_MS = 15_000L
+        const val CONNECTION_TIMEOUT_MS = 15_000L
         const val SETUP_TIMEOUT_MS = 10_000L
         const val BLE_CHUNK_TIMEOUT_MS = 5_000L
+        const val CLASSIC_SEND_TIMEOUT_MS = 5_000L
         const val CLASSIC_READ_BUFFER_SIZE = 1024
+        const val MAX_COMMAND_PAYLOAD_BYTES = 4096
+        const val MAX_PENDING_SENDS = 32
+        const val MAX_DISCOVERED_DEVICES = 100
+        const val MIN_RSSI_CHANGE_DBM = 3
         const val MAX_LOG_ENTRIES = 500
 
         val DEFAULT_BLE_SERVICE_UUID: UUID =

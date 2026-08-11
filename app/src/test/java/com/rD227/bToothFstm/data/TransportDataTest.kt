@@ -2,7 +2,6 @@ package com.rD227.bToothFstm.data
 
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothGattCharacteristic
-import com.rD227.bToothFstm.data.ScanData.DeviceType
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -30,6 +29,12 @@ class TransportDataTest {
     }
 
     @Test
+    fun bleChunkSize_capsMtu517PayloadAt512Bytes() {
+        assertEquals(512, bleChunkSize(517))
+        assertEquals(1, bleChunkSize(3))
+    }
+
+    @Test
     fun selectBleWriteType_prefersWriteWithResponse() {
         val both = BluetoothGattCharacteristic.PROPERTY_WRITE or
             BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE
@@ -43,14 +48,32 @@ class TransportDataTest {
     }
 
     @Test
-    fun resolveDeviceType_preservesDiscoveryForAmbiguousDevices() {
-        assertEquals(DeviceType.BLE, resolveDeviceType(BluetoothDevice.DEVICE_TYPE_LE))
-        assertEquals(DeviceType.CLASSIC, resolveDeviceType(BluetoothDevice.DEVICE_TYPE_CLASSIC))
+    fun resolveDeviceType_preservesDiscoveryAndScanOriginForAmbiguousDevices() {
+        assertEquals(ConnectionType.BLE, resolveDeviceType(BluetoothDevice.DEVICE_TYPE_LE))
+        assertEquals(ConnectionType.CLASSIC, resolveDeviceType(BluetoothDevice.DEVICE_TYPE_CLASSIC))
         assertEquals(
-            DeviceType.CLASSIC,
-            resolveDeviceType(BluetoothDevice.DEVICE_TYPE_DUAL, DeviceType.CLASSIC)
+            ConnectionType.CLASSIC,
+            resolveDeviceType(
+                BluetoothDevice.DEVICE_TYPE_DUAL,
+                ConnectionType.CLASSIC,
+                ConnectionType.BLE
+            )
         )
-        assertEquals(DeviceType.BLE, resolveDeviceType(BluetoothDevice.DEVICE_TYPE_DUAL))
-        assertEquals(DeviceType.CLASSIC, resolveDeviceType(BluetoothDevice.DEVICE_TYPE_UNKNOWN))
+        assertEquals(
+            ConnectionType.CLASSIC,
+            resolveDeviceType(
+                BluetoothDevice.DEVICE_TYPE_DUAL,
+                scanSource = ConnectionType.CLASSIC
+            )
+        )
+        assertEquals(ConnectionType.BLE, resolveDeviceType(BluetoothDevice.DEVICE_TYPE_DUAL))
+        assertEquals(
+            ConnectionType.BLE,
+            resolveDeviceType(
+                BluetoothDevice.DEVICE_TYPE_UNKNOWN,
+                scanSource = ConnectionType.BLE
+            )
+        )
+        assertEquals(ConnectionType.CLASSIC, resolveDeviceType(BluetoothDevice.DEVICE_TYPE_UNKNOWN))
     }
 }
