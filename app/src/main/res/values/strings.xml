@@ -47,4 +47,58 @@
     <string name="content_desc_signal">信号强度图标</string>
     <string name="content_desc_bluetooth">蓝牙图标</string>
     <string name="NoDevicesWarning">暂无配对设备，或者请扫描获取设备列表</string>
+
+    <!-- Transport and connection status -->
+    <string name="transport_ble">BLE</string>
+    <string name="transport_spp">SPP</string>
+    <string name="status_disconnected">未连接</string>
+    <string name="status_pairing">正在配对…</string>
+    <string name="status_connecting">正在连接…</string>
+    <string name="status_discovering_services">正在发现服务…</string>
+    <string name="status_enabling_notifications">正在启用通知…</string>
+    <string name="status_connected">已连接</string>
+    <string name="status_disconnecting">正在断开…</string>
+    <string name="status_error">连接错误</string>
+    <string name="devices_found">发现 %1$d 台设备</string>
+    <string name="scan_transport_types">BLE · 经典蓝牙</string>
+    <string name="scan_tap_to_start">点击开始扫描附近设备</string>
+    <string name="select_device">选择设备</string>
+
+    <!-- UUID configuration -->
+    <string name="uuid_settings">UUID 配置</string>
+    <string name="uuid_ble_service">BLE Service UUID</string>
+    <string name="uuid_ble_characteristic">BLE Characteristic UUID</string>
+    <string name="uuid_spp">SPP UUID（经典蓝牙）</string>
+    <string name="uuid_invalid">UUID 格式无效</string>
+
+    <!-- Send results -->
+    <string name="send_failed_empty">指令不能为空</string>
+    <string name="send_failed_disconnected">发送失败：设备未连接</string>
+    <string name="send_failed_timeout">发送超时，请重试</string>
+    <string name="send_failed_permission">发送失败：缺少蓝牙权限</string>
+    <string name="send_failed_write">发送失败，请重试</string>
+
+    <!-- Concise transport errors -->
+    <string name="error_adapter_unavailable">蓝牙不可用</string>
+    <string name="error_permission_denied">缺少蓝牙权限</string>
+    <string name="error_scan_failed">扫描失败</string>
+    <string name="error_invalid_device">设备地址无效</string>
+    <string name="error_pairing_failed">配对失败</string>
+    <string name="error_connection_failed">连接失败</string>
+    <string name="error_service_not_found">未找到 BLE 服务</string>
+    <string name="error_characteristic_unavailable">BLE 特征不可用</string>
+    <string name="error_notification_setup">通知启用失败</string>
+    <string name="error_setup_timeout">BLE 初始化超时</string>
+    <string name="error_remote_disconnected">设备已断开</string>
+    <string name="error_write_failed">通信写入失败</string>
+
+    <!-- Command editing and common actions -->
+    <string name="command_add">添加快捷指令</string>
+    <string name="command_edit">编辑快捷指令</string>
+    <string name="command_display_name">显示名称</string>
+    <string name="command_content">命令内容</string>
+    <string name="command_example">如：READ、RESET</string>
+    <string name="confirm">确定</string>
+    <string name="cancel">取消</string>
+    <string name="delete">删除</string>
 </resources>

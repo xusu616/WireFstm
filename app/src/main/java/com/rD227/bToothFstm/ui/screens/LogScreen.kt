@@ -45,41 +45,50 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.rD227.bToothFstm.R
+import com.rD227.bToothFstm.data.ConnectionType
+import com.rD227.bToothFstm.data.LogDirection
+import com.rD227.bToothFstm.data.LogEntry
 import com.rD227.bToothFstm.ui.theme.AppTheme
+import com.rD227.bToothFstm.viewmodel.CommandViewModel
+import com.rD227.bToothFstm.viewmodel.ScanViewModel
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
-enum class LogDirection { SENT, RECEIVED }
 enum class LogFilter { ALL, SENT, RECEIVED }
 
-data class LogEntry(
-    val id: Int,
-    val direction: LogDirection,
-    val content: String,
-    val timestamp: String
-)
+@Composable
+fun LogScreen(
+    scanViewModel: ScanViewModel,
+    @Suppress("UNUSED_PARAMETER") commandViewModel: CommandViewModel,
+    modifier: Modifier = Modifier
+) {
+    var filter by remember { mutableStateOf(LogFilter.ALL) }
+    LogScreenContent(
+        modifier = modifier,
+        logs = scanViewModel.logs,
+        filter = filter,
+        onFilterChange = { filter = it },
+        onClear = scanViewModel::clearLogs
+    )
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun LogScreen(modifier: Modifier = Modifier) {
-    var filter by remember { mutableStateOf(LogFilter.ALL) }
-    val allLogs = remember {
-        mutableStateOf(
-            listOf(
-                LogEntry(1, LogDirection.SENT, "LED:ON", "08:42:01"),
-                LogEntry(2, LogDirection.RECEIVED, "OK: LED state = ON", "08:42:01"),
-                LogEntry(3, LogDirection.SENT, "STATUS", "08:43:15"),
-                LogEntry(4, LogDirection.RECEIVED, "STATUS: temp=36.5C volt=3.3V", "08:43:15"),
-                LogEntry(5, LogDirection.SENT, "READ", "08:44:00"),
-                LogEntry(6, LogDirection.RECEIVED, "DATA: 0xFF 0x12 0xAB 0x00", "08:44:00"),
-                LogEntry(7, LogDirection.SENT, "LED:OFF", "08:45:30"),
-                LogEntry(8, LogDirection.RECEIVED, "OK: LED state = OFF", "08:45:31"),
-            )
-        )
+fun LogScreenContent(
+    logs: List<LogEntry>,
+    filter: LogFilter,
+    onFilterChange: (LogFilter) -> Unit,
+    onClear: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val displayedLogs = when (filter) {
+        LogFilter.ALL -> logs
+        LogFilter.SENT -> logs.filter { it.direction == LogDirection.SENT }
+        LogFilter.RECEIVED -> logs.filter { it.direction == LogDirection.RECEIVED }
     }
-
-    val displayed = when (filter) {
-        LogFilter.ALL -> allLogs.value
-        LogFilter.SENT -> allLogs.value.filter { it.direction == LogDirection.SENT }
-        LogFilter.RECEIVED -> allLogs.value.filter { it.direction == LogDirection.RECEIVED }
+    val timestampFormatter = remember {
+        SimpleDateFormat("HH:mm:ss.SSS", Locale.getDefault())
     }
 
     Scaffold(
@@ -93,7 +102,7 @@ fun LogScreen(modifier: Modifier = Modifier) {
                     )
                 },
                 actions = {
-                    IconButton(onClick = { allLogs.value = emptyList() }) {
+                    IconButton(onClick = onClear, enabled = logs.isNotEmpty()) {
                         Icon(
                             Icons.Default.DeleteOutline,
                             contentDescription = stringResource(R.string.log_clear),
@@ -113,17 +122,19 @@ fun LogScreen(modifier: Modifier = Modifier) {
                 .fillMaxSize()
                 .padding(innerPadding)
         ) {
-            LogFilterRow(filter = filter, onFilterChange = { filter = it })
-            if (displayed.isEmpty()) {
+            LogFilterRow(filter = filter, onFilterChange = onFilterChange)
+            if (displayedLogs.isEmpty()) {
                 EmptyLogPlaceholder(Modifier.weight(1f))
             } else {
                 LazyColumn(
                     contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                    reverseLayout = false
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    items(displayed, key = { it.id }) { entry ->
-                        LogEntryRow(entry)
+                    items(displayedLogs, key = { it.id }) { entry ->
+                        LogEntryRow(
+                            entry = entry,
+                            formattedTimestamp = timestampFormatter.format(Date(entry.timestamp))
+                        )
                     }
                 }
             }
@@ -140,15 +151,15 @@ private fun LogFilterRow(filter: LogFilter, onFilterChange: (LogFilter) -> Unit)
             .padding(horizontal = 16.dp, vertical = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        LogFilter.values().forEach { f ->
-            val label = when (f) {
+        LogFilter.entries.forEach { candidate ->
+            val label = when (candidate) {
                 LogFilter.ALL -> stringResource(R.string.log_filter_all)
                 LogFilter.SENT -> stringResource(R.string.log_sent)
                 LogFilter.RECEIVED -> stringResource(R.string.log_received)
             }
             FilterChip(
-                selected = filter == f,
-                onClick = { onFilterChange(f) },
+                selected = filter == candidate,
+                onClick = { onFilterChange(candidate) },
                 label = { Text(label) },
                 colors = FilterChipDefaults.filterChipColors(
                     selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
@@ -160,7 +171,7 @@ private fun LogFilterRow(filter: LogFilter, onFilterChange: (LogFilter) -> Unit)
 }
 
 @Composable
-private fun LogEntryRow(entry: LogEntry) {
+private fun LogEntryRow(entry: LogEntry, formattedTimestamp: String) {
     val isSent = entry.direction == LogDirection.SENT
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -168,20 +179,22 @@ private fun LogEntryRow(entry: LogEntry) {
     ) {
         Surface(
             shape = CircleShape,
-            color = if (isSent)
+            color = if (isSent) {
                 MaterialTheme.colorScheme.primaryContainer
-            else
-                MaterialTheme.colorScheme.secondaryContainer,
+            } else {
+                MaterialTheme.colorScheme.secondaryContainer
+            },
             modifier = Modifier.size(34.dp)
         ) {
             Box(contentAlignment = Alignment.Center) {
                 Icon(
                     imageVector = if (isSent) Icons.Default.ArrowUpward else Icons.Default.ArrowDownward,
                     contentDescription = null,
-                    tint = if (isSent)
+                    tint = if (isSent) {
                         MaterialTheme.colorScheme.primary
-                    else
-                        MaterialTheme.colorScheme.secondary,
+                    } else {
+                        MaterialTheme.colorScheme.secondary
+                    },
                     modifier = Modifier.size(18.dp)
                 )
             }
@@ -194,40 +207,66 @@ private fun LogEntryRow(entry: LogEntry) {
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = if (isSent) stringResource(R.string.log_sent) else stringResource(R.string.log_received),
+                    text = buildString {
+                        append(
+                            if (isSent) {
+                                stringResource(R.string.log_sent)
+                            } else {
+                                stringResource(R.string.log_received)
+                            }
+                        )
+                        append(" · ")
+                        append(
+                            stringResource(
+                                if (entry.type == ConnectionType.BLE) {
+                                    R.string.transport_ble
+                                } else {
+                                    R.string.transport_spp
+                                }
+                            )
+                        )
+                        append(" · ")
+                        append(compactAddress(entry.address))
+                    },
                     style = MaterialTheme.typography.labelSmall,
                     fontWeight = FontWeight.SemiBold,
-                    color = if (isSent)
+                    color = if (isSent) {
                         MaterialTheme.colorScheme.primary
-                    else
+                    } else {
                         MaterialTheme.colorScheme.secondary
+                    }
                 )
                 Text(
-                    text = entry.timestamp,
+                    text = formattedTimestamp,
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
             Surface(
                 shape = RoundedCornerShape(
-                    topStart = 2.dp, topEnd = 12.dp, bottomStart = 12.dp, bottomEnd = 12.dp
+                    topStart = 2.dp,
+                    topEnd = 12.dp,
+                    bottomStart = 12.dp,
+                    bottomEnd = 12.dp
                 ),
-                color = if (isSent)
+                color = if (isSent) {
                     MaterialTheme.colorScheme.primaryContainer
-                else
-                    MaterialTheme.colorScheme.surfaceVariant,
+                } else {
+                    MaterialTheme.colorScheme.surfaceVariant
+                },
                 modifier = Modifier.padding(top = 4.dp)
             ) {
                 Text(
-                    text = entry.content,
+                    text = entry.text,
                     style = MaterialTheme.typography.bodySmall.copy(
                         fontFamily = FontFamily.Monospace,
                         fontSize = 13.sp
                     ),
-                    color = if (isSent)
+                    color = if (isSent) {
                         MaterialTheme.colorScheme.onPrimaryContainer
-                    else
-                        MaterialTheme.colorScheme.onSurfaceVariant,
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
                 )
             }
@@ -255,9 +294,42 @@ private fun EmptyLogPlaceholder(modifier: Modifier = Modifier) {
     }
 }
 
+private fun compactAddress(address: String): String {
+    val parts = address.split(':')
+    return if (parts.size >= 2) parts.takeLast(2).joinToString(":") else address.takeLast(5)
+}
+
 @Preview(showBackground = true, name = "Log — Light")
-@Preview(showBackground = true, uiMode = android.content.res.Configuration.UI_MODE_NIGHT_YES, name = "Log — Dark")
+@Preview(
+    showBackground = true,
+    uiMode = android.content.res.Configuration.UI_MODE_NIGHT_YES,
+    name = "Log — Dark"
+)
 @Composable
 private fun LogScreenPreview() {
-    AppTheme(dynamicColor = false) { LogScreen() }
+    AppTheme(dynamicColor = false) {
+        LogScreenContent(
+            logs = listOf(
+                LogEntry(
+                    id = 1,
+                    timestamp = 1_754_896_921_123,
+                    direction = LogDirection.SENT,
+                    text = "LED:ON",
+                    type = ConnectionType.BLE,
+                    address = "AA:BB:CC:DD:EE:01"
+                ),
+                LogEntry(
+                    id = 2,
+                    timestamp = 1_754_896_921_456,
+                    direction = LogDirection.RECEIVED,
+                    text = "OK: LED state = ON",
+                    type = ConnectionType.CLASSIC,
+                    address = "AA:BB:CC:DD:EE:02"
+                )
+            ),
+            filter = LogFilter.ALL,
+            onFilterChange = {},
+            onClear = {}
+        )
+    }
 }

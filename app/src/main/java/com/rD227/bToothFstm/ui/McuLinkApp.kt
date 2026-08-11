@@ -49,10 +49,13 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.rD227.bToothFstm.R
 import com.rD227.bToothFstm.ui.screens.CommandScreen
 import com.rD227.bToothFstm.ui.screens.LogScreen
 import com.rD227.bToothFstm.ui.screens.ScanScreen
+import com.rD227.bToothFstm.viewmodel.CommandViewModel
+import com.rD227.bToothFstm.viewmodel.ScanViewModel
 
 sealed class AppScreen(
     val route: String,
@@ -84,6 +87,8 @@ val bottomNavScreens = listOf(AppScreen.Scan, AppScreen.Control, AppScreen.Log)
 
 @Composable
 fun McuLinkApp() {
+    val scanViewModel: ScanViewModel = viewModel()
+    val commandViewModel: CommandViewModel = viewModel()
     var currentScreen by rememberSaveable { mutableStateOf(AppScreen.Scan.route) }
     var selectedIndex by rememberSaveable { mutableIntStateOf(0) }
     Scaffold(
@@ -191,9 +196,21 @@ fun McuLinkApp() {
             .fillMaxSize()
             .padding(innerPadding)
         when (currentScreen) {
-            AppScreen.Scan.route -> ScanScreen(modifier = screenModifier)
-            AppScreen.Control.route -> CommandScreen(modifier = screenModifier)
-            AppScreen.Log.route -> LogScreen(modifier = screenModifier)
+            AppScreen.Scan.route -> ScanScreen(
+                scanViewModel = scanViewModel,
+                commandViewModel = commandViewModel,
+                modifier = screenModifier
+            )
+            AppScreen.Control.route -> CommandScreen(
+                scanViewModel = scanViewModel,
+                commandViewModel = commandViewModel,
+                modifier = screenModifier
+            )
+            AppScreen.Log.route -> LogScreen(
+                scanViewModel = scanViewModel,
+                commandViewModel = commandViewModel,
+                modifier = screenModifier
+            )
         }
     }
 }

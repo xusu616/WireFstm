@@ -1,14 +1,10 @@
 package com.rD227.bToothFstm.ui.screens
 
 import android.Manifest
-import android.R.attr.centerX
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.BoundsTransform
-import androidx.compose.animation.core.EaseInCirc
 import androidx.compose.animation.core.EaseInOut
-import androidx.compose.animation.core.EaseOutBounce
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -24,7 +20,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -41,9 +36,9 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.SignalCellularAlt
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
@@ -56,12 +51,10 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
 import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
@@ -72,32 +65,38 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.rD227.bToothFstm.R
+import com.rD227.bToothFstm.data.ConnectionPhase
+import com.rD227.bToothFstm.data.ConnectionType
+import com.rD227.bToothFstm.data.ConnectionUiState
 import com.rD227.bToothFstm.data.ScanData.BleDevice
+import com.rD227.bToothFstm.data.ScanData.DeviceType
+import com.rD227.bToothFstm.data.TransportErrorKind
 import com.rD227.bToothFstm.ui.theme.AppTheme
+import com.rD227.bToothFstm.viewmodel.CommandViewModel
 import com.rD227.bToothFstm.viewmodel.ScanViewModel
 
-// 有状态外壳：从 ViewModel 读状态、发起权限请求，然后交给纯 UI 渲染
 @Composable
 fun ScanScreen(
-    modifier: Modifier = Modifier,
-    viewModel: ScanViewModel = viewModel()
+    scanViewModel: ScanViewModel,
+    @Suppress("UNUSED_PARAMETER") commandViewModel: CommandViewModel,
+    modifier: Modifier = Modifier
 ) {
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { result ->
-        viewModel.onPermissionResult(result.values.all { it })
+        scanViewModel.onPermissionResult(result.values.all { it })
     }
 
     ScanScreenContent(
         modifier = modifier,
-        isScanning = viewModel.isScanning,
-        devices = viewModel.devices,
-        pairingAddress = viewModel.pairingAddress,
+        isScanning = scanViewModel.isScanning,
+        devices = scanViewModel.devices,
+        connectionState = scanViewModel.connectionState,
         onToggleScan = {
-            if (viewModel.isScanning) {
-                viewModel.stopScan()
-            } else if (viewModel.hasPermission) {
-                viewModel.startScan()
+            if (scanViewModel.isScanning) {
+                scanViewModel.stopScan()
+            } else if (scanViewModel.hasPermission) {
+                scanViewModel.startScan()
             } else {
                 val permissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                     arrayOf(
@@ -110,19 +109,18 @@ fun ScanScreen(
                 permissionLauncher.launch(permissions)
             }
         },
-        onConnect = { viewModel.connectDevice(it) },
-        onDisconnect = { viewModel.disconnectDevice() }
+        onConnect = scanViewModel::connectDevice,
+        onDisconnect = scanViewModel::disconnectDevice
     )
 }
 
-// 纯 UI：不依赖 ViewModel，只接收普通参数，可直接用于 Preview
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ScanScreenContent(
     modifier: Modifier = Modifier,
     isScanning: Boolean,
     devices: List<BleDevice>,
-    pairingAddress: String?,
+    connectionState: ConnectionUiState,
     onToggleScan: () -> Unit,
     onConnect: (BleDevice) -> Unit,
     onDisconnect: () -> Unit
@@ -154,14 +152,15 @@ fun ScanScreenContent(
                 deviceCount = devices.size,
                 onToggleScan = onToggleScan
             )
+            ConnectionStatusStrip(connectionState)
             LazyColumn(
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                items(devices) { device ->
+                items(devices, key = { it.address }) { device ->
                     DeviceCard(
                         device = device,
-                        isPairing = pairingAddress == device.address,
+                        connectionState = connectionState,
                         onConnect = { onConnect(device) },
                         onDisconnect = onDisconnect
                     )
@@ -177,9 +176,10 @@ private fun ScanControlCard(
     deviceCount: Int,
     onToggleScan: () -> Unit
 ) {
-    val infiniteTransition = rememberInfiniteTransition(label = "pulse")
-    val pulseAlpha by infiniteTransition.animateFloat(
-        initialValue = 0.3f, targetValue = 1f,
+    val pulseTransition = rememberInfiniteTransition(label = "pulse")
+    val pulseAlpha by pulseTransition.animateFloat(
+        initialValue = 0.3f,
+        targetValue = 1f,
         animationSpec = infiniteRepeatable(tween(900, easing = LinearEasing), RepeatMode.Reverse),
         label = "alpha"
     )
@@ -202,7 +202,11 @@ private fun ScanControlCard(
                     )
                 }
                 Icon(
-                    imageVector = if (isScanning) Icons.Default.BluetoothSearching else Icons.Default.Bluetooth,
+                    imageVector = if (isScanning) {
+                        Icons.AutoMirrored.Filled.BluetoothSearching
+                    } else {
+                        Icons.Default.Bluetooth
+                    },
                     contentDescription = stringResource(R.string.content_desc_bluetooth),
                     tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(28.dp)
@@ -211,69 +215,140 @@ private fun ScanControlCard(
             Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f)) {
                 Text(
-                    text = if (isScanning) stringResource(R.string.scanning) else "发现 $deviceCount 台设备",
+                    text = if (isScanning) {
+                        stringResource(R.string.scanning)
+                    } else {
+                        stringResource(R.string.devices_found, deviceCount)
+                    },
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Medium,
                     color = MaterialTheme.colorScheme.onPrimaryContainer
                 )
                 Text(
-                    text = if (isScanning) "BLE · 经典蓝牙" else "点击开始扫描附近设备",
+                    text = if (isScanning) {
+                        stringResource(R.string.scan_transport_types)
+                    } else {
+                        stringResource(R.string.scan_tap_to_start)
+                    },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
                 )
             }
-            val infiniteTransition = rememberInfiniteTransition(label = "scan_animation")
-            val alphaScanAnimation by infiniteTransition.animateFloat(
-                initialValue = 0.9f, targetValue = 1f,
+            val scanTransition = rememberInfiniteTransition(label = "scan_animation")
+            val scanAlpha by scanTransition.animateFloat(
+                initialValue = 0.9f,
+                targetValue = 1f,
                 animationSpec = infiniteRepeatable(tween(500, easing = LinearEasing), RepeatMode.Reverse),
                 label = "alpha"
             )
             FilledTonalButton(
-                    onClick = onToggleScan,
-                    modifier = Modifier
-                        .alpha(if (isScanning) alphaScanAnimation else 1f)
-                        .sweepEffect(isScanning)
-                ,
-                ) {
+                onClick = onToggleScan,
+                modifier = Modifier
+                    .alpha(if (isScanning) scanAlpha else 1f)
+                    .sweepEffect(isScanning)
+            ) {
                 Icon(
-                    imageVector = if (isScanning) Icons.Default.Close else Icons.AutoMirrored.Filled.BluetoothSearching,
+                    imageVector = if (isScanning) {
+                        Icons.Default.Close
+                    } else {
+                        Icons.AutoMirrored.Filled.BluetoothSearching
+                    },
                     contentDescription = null,
                     modifier = Modifier.size(16.dp)
                 )
                 Spacer(Modifier.width(6.dp))
-                Text(if (isScanning) stringResource(R.string.scan_stop) else stringResource(R.string.scan_start))
+                Text(
+                    if (isScanning) {
+                        stringResource(R.string.scan_stop)
+                    } else {
+                        stringResource(R.string.scan_start)
+                    }
+                )
             }
         }
     }
 }
 
-fun Modifier.sweepEffect(active: Boolean) : Modifier {
-    if (!active ) return this
+@Composable
+private fun ConnectionStatusStrip(connectionState: ConnectionUiState) {
+    if (connectionState.phase == ConnectionPhase.DISCONNECTED) return
+    val busy = connectionState.phase.isScanOperationInProgress()
+    val isError = connectionState.phase == ConnectionPhase.ERROR
+    Surface(
+        color = if (isError) {
+            MaterialTheme.colorScheme.errorContainer
+        } else {
+            MaterialTheme.colorScheme.surfaceVariant
+        },
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            if (busy) {
+                CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+            }
+            Column(Modifier.weight(1f)) {
+                Text(
+                    text = scanConnectionPhaseLabel(connectionState.phase),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = if (isError) {
+                        MaterialTheme.colorScheme.onErrorContainer
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    }
+                )
+                val summary = buildList {
+                    connectionState.type?.let { add(scanConnectionTypeLabel(it)) }
+                    connectionState.address?.let(::add)
+                }.joinToString(" · ")
+                if (summary.isNotEmpty()) {
+                    Text(summary, style = MaterialTheme.typography.bodySmall)
+                }
+                connectionState.error?.let { error ->
+                    Text(
+                        text = scanTransportErrorLabel(error.kind),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onErrorContainer
+                    )
+                }
+            }
+        }
+    }
+}
+
+fun Modifier.sweepEffect(active: Boolean): Modifier {
+    if (!active) return this
     return composed {
-        val infiniteTransition = rememberInfiniteTransition(label = "sweep_effect")
-        val sweepLight by infiniteTransition.animateFloat(
+        val transition = rememberInfiniteTransition(label = "sweep_effect")
+        val sweepLight by transition.animateFloat(
             initialValue = 0f,
             targetValue = 1f,
             animationSpec = infiniteRepeatable(
-                tween(1000,
-                    easing = EaseInOut
-                ),
+                tween(1000, easing = EaseInOut),
                 RepeatMode.Reverse
             ),
             label = "sweep_light"
         )
-
         val primaryColor = Color.White
         val neutralColor = MaterialTheme.colorScheme.primaryContainer
-        this.drawWithContent {
+        drawWithContent {
             drawContent()
             val bandWidth = size.width * 0.3f
             val centerX = (size.width - bandWidth) * sweepLight + bandWidth / 2
             drawRect(
                 brush = Brush.linearGradient(
-                    colors=listOf(Color.Transparent,neutralColor,primaryColor,neutralColor, Color.Transparent),
-                    start = Offset(centerX - bandWidth , 0f),
-                    end = Offset(centerX + bandWidth , 0f),
+                    colors = listOf(
+                        Color.Transparent,
+                        neutralColor,
+                        primaryColor,
+                        neutralColor,
+                        Color.Transparent
+                    ),
+                    start = Offset(centerX - bandWidth, 0f),
+                    end = Offset(centerX + bandWidth, 0f),
                     tileMode = TileMode.Clamp
                 ),
                 alpha = 0.2f
@@ -285,19 +360,23 @@ fun Modifier.sweepEffect(active: Boolean) : Modifier {
 @Composable
 private fun DeviceCard(
     device: BleDevice,
-    isPairing: Boolean = false,
-    onConnect: () -> Unit = {},
-    onDisconnect: () -> Unit = {}
+    connectionState: ConnectionUiState,
+    onConnect: () -> Unit,
+    onDisconnect: () -> Unit
 ) {
+    val isTarget = connectionState.address == device.address
+    val isConnected = isTarget && connectionState.phase == ConnectionPhase.CONNECTED
+    val isBusy = connectionState.phase.isScanOperationInProgress()
     Card(
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(
-            containerColor = if (device.isConnected)
+            containerColor = if (isConnected) {
                 MaterialTheme.colorScheme.primaryContainer
-            else
+            } else {
                 MaterialTheme.colorScheme.surfaceVariant
+            }
         ),
-        elevation = CardDefaults.cardElevation(defaultElevation = if (device.isConnected) 2.dp else 0.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = if (isConnected) 2.dp else 0.dp)
     ) {
         Row(
             modifier = Modifier.padding(16.dp),
@@ -305,18 +384,22 @@ private fun DeviceCard(
         ) {
             Surface(
                 shape = CircleShape,
-                color = if (device.isConnected)
+                color = if (isConnected) {
                     MaterialTheme.colorScheme.primary
-                else
-                    MaterialTheme.colorScheme.outline.copy(alpha = 0.15f),
+                } else {
+                    MaterialTheme.colorScheme.outline.copy(alpha = 0.15f)
+                },
                 modifier = Modifier.size(44.dp)
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Icon(
-                        imageVector = if (device.isConnected) Icons.Default.BluetoothConnected else Icons.Default.Bluetooth,
+                        imageVector = if (isConnected) Icons.Default.BluetoothConnected else Icons.Default.Bluetooth,
                         contentDescription = null,
-                        tint = if (device.isConnected) MaterialTheme.colorScheme.onPrimary
-                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                        tint = if (isConnected) {
+                            MaterialTheme.colorScheme.onPrimary
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
                         modifier = Modifier.size(22.dp)
                     )
                 }
@@ -344,13 +427,15 @@ private fun DeviceCard(
                         }
                     }
                 }
-                Spacer(Modifier.height(2.dp))
                 Text(
-                    text = device.address,
+                    text = "${device.address} · ${scanDeviceTypeLabel(device.deviceType)}",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 2.dp)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(top = 2.dp)
+                ) {
                     Icon(
                         imageVector = Icons.Default.SignalCellularAlt,
                         contentDescription = stringResource(R.string.content_desc_signal),
@@ -365,27 +450,81 @@ private fun DeviceCard(
                     )
                 }
             }
-            if (isPairing) {
-                // 配对中：显示转圈
-                CircularProgressIndicator(
+            when {
+                isTarget && isBusy -> CircularProgressIndicator(
                     modifier = Modifier.size(36.dp),
                     strokeWidth = 3.dp
                 )
-            } else if (device.isConnected) {
-                OutlinedButton(
+                isConnected -> OutlinedButton(
                     onClick = onDisconnect,
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        contentColor = MaterialTheme.colorScheme.error
+                    )
                 ) {
                     Text(stringResource(R.string.disconnect))
                 }
-            } else {
-                Button(onClick = onConnect) {
+                else -> Button(onClick = onConnect, enabled = !isBusy) {
                     Text(stringResource(R.string.connect))
                 }
             }
         }
     }
 }
+
+private fun ConnectionPhase.isScanOperationInProgress(): Boolean = this in setOf(
+    ConnectionPhase.PAIRING,
+    ConnectionPhase.CONNECTING,
+    ConnectionPhase.DISCOVERING_SERVICES,
+    ConnectionPhase.ENABLING_NOTIFICATIONS,
+    ConnectionPhase.DISCONNECTING
+)
+
+@Composable
+private fun scanConnectionPhaseLabel(phase: ConnectionPhase): String = stringResource(
+    when (phase) {
+        ConnectionPhase.DISCONNECTED -> R.string.status_disconnected
+        ConnectionPhase.PAIRING -> R.string.status_pairing
+        ConnectionPhase.CONNECTING -> R.string.status_connecting
+        ConnectionPhase.DISCOVERING_SERVICES -> R.string.status_discovering_services
+        ConnectionPhase.ENABLING_NOTIFICATIONS -> R.string.status_enabling_notifications
+        ConnectionPhase.CONNECTED -> R.string.status_connected
+        ConnectionPhase.DISCONNECTING -> R.string.status_disconnecting
+        ConnectionPhase.ERROR -> R.string.status_error
+    }
+)
+
+@Composable
+private fun scanConnectionTypeLabel(type: ConnectionType): String = stringResource(
+    if (type == ConnectionType.BLE) R.string.transport_ble else R.string.transport_spp
+)
+
+@Composable
+private fun scanTransportErrorLabel(kind: TransportErrorKind): String = stringResource(
+    when (kind) {
+        TransportErrorKind.ADAPTER_UNAVAILABLE -> R.string.error_adapter_unavailable
+        TransportErrorKind.PERMISSION_DENIED,
+        TransportErrorKind.SECURITY_ERROR -> R.string.error_permission_denied
+        TransportErrorKind.SCAN_FAILED -> R.string.error_scan_failed
+        TransportErrorKind.INVALID_DEVICE -> R.string.error_invalid_device
+        TransportErrorKind.PAIRING_FAILED -> R.string.error_pairing_failed
+        TransportErrorKind.SERVICE_NOT_FOUND -> R.string.error_service_not_found
+        TransportErrorKind.CHARACTERISTIC_NOT_FOUND,
+        TransportErrorKind.CHARACTERISTIC_NOT_SUPPORTED -> R.string.error_characteristic_unavailable
+        TransportErrorKind.NOTIFICATION_SETUP_FAILED -> R.string.error_notification_setup
+        TransportErrorKind.SETUP_TIMEOUT -> R.string.error_setup_timeout
+        TransportErrorKind.REMOTE_DISCONNECTED -> R.string.error_remote_disconnected
+        TransportErrorKind.WRITE_FAILED,
+        TransportErrorKind.WRITE_TIMEOUT -> R.string.error_write_failed
+        TransportErrorKind.CONNECTION_FAILED,
+        TransportErrorKind.GATT_ERROR,
+        TransportErrorKind.IO_ERROR -> R.string.error_connection_failed
+    }
+)
+
+@Composable
+private fun scanDeviceTypeLabel(type: DeviceType): String = stringResource(
+    if (type == DeviceType.BLE) R.string.transport_ble else R.string.transport_spp
+)
 
 @Composable
 private fun signalColor(rssi: Int) = when {
@@ -394,20 +533,45 @@ private fun signalColor(rssi: Int) = when {
     else -> MaterialTheme.colorScheme.error
 }
 
-
 @Preview(showBackground = true, name = "Scan — Light")
-@Preview(showBackground = true, uiMode = android.content.res.Configuration.UI_MODE_NIGHT_YES, name = "Scan — Dark")
+@Preview(
+    showBackground = true,
+    uiMode = android.content.res.Configuration.UI_MODE_NIGHT_YES,
+    name = "Scan — Dark"
+)
 @Composable
 private fun ScanScreenPreview() {
     AppTheme(dynamicColor = false) {
         ScanScreenContent(
             isScanning = true,
             devices = listOf(
-                BleDevice("MCU-STM32-01", "AA:BB:CC:DD:EE:01", -55, isConnected = true, isPaired = true),
-                BleDevice("HC-05 Module", "AA:BB:CC:DD:EE:02", -72, isPaired = true),
-                BleDevice("ESP32-DevKit", "AA:BB:CC:DD:EE:03", -88),
+                BleDevice(
+                    "MCU-STM32-01",
+                    "AA:BB:CC:DD:EE:01",
+                    -55,
+                    isConnected = true,
+                    isPaired = true,
+                    deviceType = DeviceType.BLE
+                ),
+                BleDevice(
+                    "HC-05 Module",
+                    "AA:BB:CC:DD:EE:02",
+                    -72,
+                    isPaired = true,
+                    deviceType = DeviceType.CLASSIC
+                ),
+                BleDevice(
+                    "ESP32-DevKit",
+                    "AA:BB:CC:DD:EE:03",
+                    -88,
+                    deviceType = DeviceType.BLE
+                )
             ),
-            pairingAddress = "AA:BB:CC:DD:EE:03",
+            connectionState = ConnectionUiState(
+                phase = ConnectionPhase.DISCOVERING_SERVICES,
+                address = "AA:BB:CC:DD:EE:03",
+                type = ConnectionType.BLE
+            ),
             onToggleScan = {},
             onConnect = {},
             onDisconnect = {}
