@@ -35,6 +35,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -49,7 +50,6 @@ import com.rD227.bToothFstm.data.ConnectionType
 import com.rD227.bToothFstm.data.LogDirection
 import com.rD227.bToothFstm.data.LogEntry
 import com.rD227.bToothFstm.ui.theme.AppTheme
-import com.rD227.bToothFstm.viewmodel.CommandViewModel
 import com.rD227.bToothFstm.viewmodel.ScanViewModel
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -57,18 +57,40 @@ import java.util.Locale
 
 enum class LogFilter { ALL, SENT, RECEIVED }
 
+enum class LogTextDisplay { CLEAN, ESCAPED }
+
+fun formatLogText(text: String, display: LogTextDisplay): String = when (display) {
+    LogTextDisplay.CLEAN -> text.trimEnd('\r', '\n')
+    LogTextDisplay.ESCAPED -> buildString {
+        text.forEach { character ->
+            when {
+                character == '\\' -> append("\\\\")
+                character == '\r' -> append("\\r")
+                character == '\n' -> append("\\n")
+                character == '\t' -> append("\\t")
+                character == '\b' -> append("\\b")
+                character == '\u000C' -> append("\\f")
+                character.isISOControl() -> append("\\u%04X".format(character.code))
+                else -> append(character)
+            }
+        }
+    }
+}
+
 @Composable
 fun LogScreen(
     scanViewModel: ScanViewModel,
-    @Suppress("UNUSED_PARAMETER") commandViewModel: CommandViewModel,
     modifier: Modifier = Modifier
 ) {
     var filter by remember { mutableStateOf(LogFilter.ALL) }
+    var textDisplay by rememberSaveable { mutableStateOf(LogTextDisplay.CLEAN) }
     LogScreenContent(
         modifier = modifier,
         logs = scanViewModel.logs,
         filter = filter,
         onFilterChange = { filter = it },
+        textDisplay = textDisplay,
+        onTextDisplayChange = { textDisplay = it },
         onClear = scanViewModel::clearLogs
     )
 }
@@ -79,6 +101,8 @@ fun LogScreenContent(
     logs: List<LogEntry>,
     filter: LogFilter,
     onFilterChange: (LogFilter) -> Unit,
+    textDisplay: LogTextDisplay,
+    onTextDisplayChange: (LogTextDisplay) -> Unit,
     onClear: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -123,6 +147,10 @@ fun LogScreenContent(
                 .padding(innerPadding)
         ) {
             LogFilterRow(filter = filter, onFilterChange = onFilterChange)
+            LogTextDisplayRow(
+                textDisplay = textDisplay,
+                onTextDisplayChange = onTextDisplayChange
+            )
             if (displayedLogs.isEmpty()) {
                 EmptyLogPlaceholder(Modifier.weight(1f))
             } else {
@@ -133,7 +161,8 @@ fun LogScreenContent(
                     items(displayedLogs, key = { it.id }) { entry ->
                         LogEntryRow(
                             entry = entry,
-                            formattedTimestamp = timestampFormatter.format(Date(entry.timestamp))
+                            formattedTimestamp = timestampFormatter.format(Date(entry.timestamp)),
+                            textDisplay = textDisplay
                         )
                     }
                 }
@@ -171,7 +200,46 @@ private fun LogFilterRow(filter: LogFilter, onFilterChange: (LogFilter) -> Unit)
 }
 
 @Composable
-private fun LogEntryRow(entry: LogEntry, formattedTimestamp: String) {
+private fun LogTextDisplayRow(
+    textDisplay: LogTextDisplay,
+    onTextDisplayChange: (LogTextDisplay) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 0.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        LogTextDisplay.entries.forEach { candidate ->
+            FilterChip(
+                selected = textDisplay == candidate,
+                onClick = { onTextDisplayChange(candidate) },
+                label = {
+                    Text(
+                        stringResource(
+                            if (candidate == LogTextDisplay.CLEAN) {
+                                R.string.log_display_clean
+                            } else {
+                                R.string.log_display_escaped
+                            }
+                        )
+                    )
+                },
+                colors = FilterChipDefaults.filterChipColors(
+                    selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                    selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
+                )
+            )
+        }
+    }
+}
+
+@Composable
+private fun LogEntryRow(
+    entry: LogEntry,
+    formattedTimestamp: String,
+    textDisplay: LogTextDisplay
+) {
     val isSent = entry.direction == LogDirection.SENT
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -257,7 +325,7 @@ private fun LogEntryRow(entry: LogEntry, formattedTimestamp: String) {
                 modifier = Modifier.padding(top = 4.dp)
             ) {
                 Text(
-                    text = entry.text,
+                    text = formatLogText(entry.text, textDisplay),
                     style = MaterialTheme.typography.bodySmall.copy(
                         fontFamily = FontFamily.Monospace,
                         fontSize = 13.sp
@@ -329,6 +397,8 @@ private fun LogScreenPreview() {
             ),
             filter = LogFilter.ALL,
             onFilterChange = {},
+            textDisplay = LogTextDisplay.CLEAN,
+            onTextDisplayChange = {},
             onClear = {}
         )
     }

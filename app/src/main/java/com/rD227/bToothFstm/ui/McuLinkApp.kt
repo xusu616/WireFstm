@@ -198,7 +198,6 @@ fun McuLinkApp() {
         when (currentScreen) {
             AppScreen.Scan.route -> ScanScreen(
                 scanViewModel = scanViewModel,
-                commandViewModel = commandViewModel,
                 modifier = screenModifier
             )
             AppScreen.Control.route -> CommandScreen(
@@ -208,7 +207,6 @@ fun McuLinkApp() {
             )
             AppScreen.Log.route -> LogScreen(
                 scanViewModel = scanViewModel,
-                commandViewModel = commandViewModel,
                 modifier = screenModifier
             )
         }

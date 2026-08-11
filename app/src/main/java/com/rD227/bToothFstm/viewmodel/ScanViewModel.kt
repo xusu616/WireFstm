@@ -25,6 +25,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.core.content.edit
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.rD227.bToothFstm.data.ConnectionPhase
@@ -165,11 +166,11 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
         if (updated == transportConfig) return UuidUpdateResult.Success(updated)
 
         transportConfig = updated
-        preferences.edit()
-            .putString(KEY_BLE_SERVICE_UUID, service.toString())
-            .putString(KEY_BLE_CHARACTERISTIC_UUID, characteristic.toString())
-            .putString(KEY_SPP_UUID, spp.toString())
-            .apply()
+        preferences.edit {
+            putString(KEY_BLE_SERVICE_UUID, service.toString())
+            putString(KEY_BLE_CHARACTERISTIC_UUID, characteristic.toString())
+            putString(KEY_SPP_UUID, spp.toString())
+        }
 
         if (hasActiveConnection()) disconnectDevice()
         return UuidUpdateResult.Success(updated)
@@ -569,12 +570,7 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
         )
         val callback = createGattCallback(generation)
         try {
-            val gatt = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                device.connectGatt(app, false, callback, BluetoothDevice.TRANSPORT_LE)
-            } else {
-                @Suppress("DEPRECATION")
-                device.connectGatt(app, false, callback)
-            }
+            val gatt = device.connectGatt(app, false, callback, BluetoothDevice.TRANSPORT_LE)
             if (generation != connectionGeneration) {
                 safeCloseGatt(gatt, disconnect = true)
             } else if (gatt == null) {
@@ -1126,6 +1122,13 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
                     socket.outputStream.write(pending.payload)
                     socket.outputStream.flush()
                     withContext(Dispatchers.Main.immediate) {
+                        if (classicSendTimedOut) {
+                            failConnection(
+                                generation,
+                                TransportError(TransportErrorKind.WRITE_TIMEOUT, "Classic write timed out")
+                            )
+                            return@withContext
+                        }
                         cancelClassicSendTimeout()
                         if (generation == connectionGeneration && pendingSends.containsKey(pending.requestId)) {
                             appendLog(

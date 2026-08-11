@@ -72,6 +72,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -89,7 +90,6 @@ import com.rD227.bToothFstm.data.ConnectionType
 import com.rD227.bToothFstm.data.ConnectionUiState
 import com.rD227.bToothFstm.data.QuickCommand
 import com.rD227.bToothFstm.data.ScanData.BleDevice
-import com.rD227.bToothFstm.data.ScanData.DeviceType
 import com.rD227.bToothFstm.data.SendFailureReason
 import com.rD227.bToothFstm.data.SendResult
 import com.rD227.bToothFstm.data.TransportError
@@ -124,14 +124,30 @@ fun CommandScreen(
         scanViewModel.devices.firstOrNull { it.address == address }
             ?: scanViewModel.pairedDevices.firstOrNull { it.address == address }
     }
-    var customInput by remember { mutableStateOf("") }
+    var customInput by rememberSaveable { mutableStateOf("") }
+    var pendingCustomRequestId by rememberSaveable { mutableStateOf<Long?>(null) }
+    var pendingCustomText by rememberSaveable { mutableStateOf<String?>(null) }
     val snackbarHostState = remember { SnackbarHostState() }
     val sendResult = scanViewModel.lastSendResult
     val failureMessage = sendResultMessage(sendResult)
 
     LaunchedEffect(sendResult?.requestId) {
-        if (sendResult is SendResult.Failed && failureMessage != null) {
-            snackbarHostState.showSnackbar(failureMessage)
+        val result = sendResult ?: return@LaunchedEffect
+        val matchesPendingCustom = result.requestId == pendingCustomRequestId
+        if (matchesPendingCustom) {
+            if (result is SendResult.Sent && customInput == pendingCustomText) {
+                customInput = ""
+            }
+            pendingCustomRequestId = null
+            pendingCustomText = null
+        }
+
+        try {
+            if (result is SendResult.Failed && failureMessage != null) {
+                snackbarHostState.showSnackbar(failureMessage)
+            }
+        } finally {
+            scanViewModel.consumeLastSendResult(result.requestId)
         }
     }
 
@@ -144,11 +160,9 @@ fun CommandScreen(
         onCustomInputChange = { customInput = it },
         onQuickSend = { scanViewModel.sendCommand(it) },
         onCustomSend = { submittedText ->
-            scanViewModel.sendCommand(submittedText) { result ->
-                if (result is SendResult.Sent && customInput == submittedText) {
-                    customInput = ""
-                }
-            }
+            val requestId = scanViewModel.sendCommand(submittedText)
+            pendingCustomRequestId = requestId
+            pendingCustomText = submittedText
         },
         onConnect = scanViewModel::connectDevice,
         onDisconnect = scanViewModel::disconnectDevice,
@@ -540,7 +554,7 @@ fun DevicesSheet(
                                                 fontWeight = FontWeight.Medium
                                             )
                                             Text(
-                                                "${device.address} · ${deviceTypeLabel(device.deviceType)}",
+                                                "${device.address} · ${connectionTypeLabel(device.deviceType)}",
                                                 style = MaterialTheme.typography.bodySmall,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                                             )
@@ -925,14 +939,6 @@ private fun connectionTypeLabel(type: ConnectionType): String = stringResource(
 )
 
 @Composable
-private fun deviceTypeLabel(type: DeviceType): String = stringResource(
-    when (type) {
-        DeviceType.BLE -> R.string.transport_ble
-        DeviceType.CLASSIC -> R.string.transport_spp
-    }
-)
-
-@Composable
 private fun transportErrorLabel(error: TransportError): String = stringResource(
     when (error.kind) {
         TransportErrorKind.ADAPTER_UNAVAILABLE -> R.string.error_adapter_unavailable
@@ -961,6 +967,8 @@ private fun sendResultMessage(result: SendResult?): String? = when (result) {
     is SendResult.Failed -> stringResource(
         when (result.reason) {
             SendFailureReason.EMPTY_COMMAND -> R.string.send_failed_empty
+            SendFailureReason.COMMAND_TOO_LARGE -> R.string.send_failed_command_too_large
+            SendFailureReason.QUEUE_FULL -> R.string.send_failed_queue_full
             SendFailureReason.NOT_CONNECTED,
             SendFailureReason.DISCONNECTED -> R.string.send_failed_disconnected
             SendFailureReason.TIMEOUT -> R.string.send_failed_timeout
@@ -1018,7 +1026,7 @@ fun DeviceCardPreview(
         -55,
         isConnected = true,
         isPaired = true,
-        deviceType = DeviceType.BLE
+        deviceType = ConnectionType.BLE
     )
 ) {
     AppTheme {

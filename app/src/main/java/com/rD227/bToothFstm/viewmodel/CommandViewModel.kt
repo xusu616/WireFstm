@@ -3,6 +3,7 @@ package com.rD227.bToothFstm.viewmodel
 import android.app.Application
 import android.content.Context
 import androidx.compose.runtime.mutableStateListOf
+import androidx.core.content.edit
 import androidx.lifecycle.AndroidViewModel
 import com.rD227.bToothFstm.data.QuickCommand
 import org.json.JSONArray
@@ -59,7 +60,7 @@ class CommandViewModel(application: Application) : AndroidViewModel(application)
     private fun saveQuickCommands() {
         val array = JSONArray()
         _quickCommands.forEach { array.put(it.toJson()) }
-        preferences.edit().putString(COMMANDS_KEY, array.toString()).apply()
+        preferences.edit { putString(COMMANDS_KEY, array.toString()) }
     }
 
     private fun QuickCommand.toJson() = JSONObject().apply {

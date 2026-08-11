@@ -41,6 +41,8 @@
     <string name="log_sent">发送</string>
     <string name="log_received">接收</string>
     <string name="log_filter_all">全部</string>
+    <string name="log_display_clean">隐藏行尾</string>
+    <string name="log_display_escaped">显示转义</string>
 
     <!-- Common -->
     <string name="device_name_unknown">未知设备</string>
@@ -73,6 +75,8 @@
 
     <!-- Send results -->
     <string name="send_failed_empty">指令不能为空</string>
+    <string name="send_failed_command_too_large">指令过长，无法发送</string>
+    <string name="send_failed_queue_full">发送队列已满，请稍后重试</string>
     <string name="send_failed_disconnected">发送失败：设备未连接</string>
     <string name="send_failed_timeout">发送超时，请重试</string>
     <string name="send_failed_permission">发送失败：缺少蓝牙权限</string>

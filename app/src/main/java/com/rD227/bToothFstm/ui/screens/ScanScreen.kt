@@ -69,16 +69,13 @@ import com.rD227.bToothFstm.data.ConnectionPhase
 import com.rD227.bToothFstm.data.ConnectionType
 import com.rD227.bToothFstm.data.ConnectionUiState
 import com.rD227.bToothFstm.data.ScanData.BleDevice
-import com.rD227.bToothFstm.data.ScanData.DeviceType
 import com.rD227.bToothFstm.data.TransportErrorKind
 import com.rD227.bToothFstm.ui.theme.AppTheme
-import com.rD227.bToothFstm.viewmodel.CommandViewModel
 import com.rD227.bToothFstm.viewmodel.ScanViewModel
 
 @Composable
 fun ScanScreen(
     scanViewModel: ScanViewModel,
-    @Suppress("UNUSED_PARAMETER") commandViewModel: CommandViewModel,
     modifier: Modifier = Modifier
 ) {
     val permissionLauncher = rememberLauncherForActivityResult(
@@ -428,7 +425,7 @@ private fun DeviceCard(
                     }
                 }
                 Text(
-                    text = "${device.address} · ${scanDeviceTypeLabel(device.deviceType)}",
+                    text = "${device.address} · ${scanConnectionTypeLabel(device.deviceType)}",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -522,11 +519,6 @@ private fun scanTransportErrorLabel(kind: TransportErrorKind): String = stringRe
 )
 
 @Composable
-private fun scanDeviceTypeLabel(type: DeviceType): String = stringResource(
-    if (type == DeviceType.BLE) R.string.transport_ble else R.string.transport_spp
-)
-
-@Composable
 private fun signalColor(rssi: Int) = when {
     rssi >= -60 -> MaterialTheme.colorScheme.secondary
     rssi >= -75 -> MaterialTheme.colorScheme.primary
@@ -551,20 +543,20 @@ private fun ScanScreenPreview() {
                     -55,
                     isConnected = true,
                     isPaired = true,
-                    deviceType = DeviceType.BLE
+                    deviceType = ConnectionType.BLE
                 ),
                 BleDevice(
                     "HC-05 Module",
                     "AA:BB:CC:DD:EE:02",
                     -72,
                     isPaired = true,
-                    deviceType = DeviceType.CLASSIC
+                    deviceType = ConnectionType.CLASSIC
                 ),
                 BleDevice(
                     "ESP32-DevKit",
                     "AA:BB:CC:DD:EE:03",
                     -88,
-                    deviceType = DeviceType.BLE
+                    deviceType = ConnectionType.BLE
                 )
             ),
             connectionState = ConnectionUiState(
