@@ -7,8 +7,10 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -27,7 +29,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
@@ -40,6 +41,8 @@ import androidx.compose.material.icons.filled.FlashOn
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Tune
@@ -82,14 +85,21 @@ import com.rD227.bToothFstm.R
 import com.rD227.bToothFstm.data.ScanData.BleDevice
 import com.rD227.bToothFstm.data.ScanData.DeviceType
 import com.rD227.bToothFstm.ui.theme.AppTheme
+import com.rD227.bToothFstm.viewmodel.QuickCommand
 import com.rD227.bToothFstm.viewmodel.ScanViewModel
 
-data class QuickCommand(
-    val label: String,
-    val command: String,
-    val icon: ImageVector,
-    val isDestructive: Boolean = false
-)
+// ── Icon 映射辅助函数 ─────────────────────────────────────────────────────────
+@Composable
+fun getIconByName(name: String): ImageVector = when (name) {
+    "Refresh" -> Icons.Default.Refresh
+    "Info" -> Icons.Default.Info
+    "FlashOn" -> Icons.Default.FlashOn
+    "PowerSettingsNew" -> Icons.Default.PowerSettingsNew
+    "Stop" -> Icons.Default.Stop
+    "Add" -> Icons.Default.Add
+    "Delete" -> Icons.Default.Delete
+    else -> Icons.Default.Refresh
+}
 
 // ── 有状态外壳 ────────────────────────────────────────────────────────────────
 @Composable
@@ -121,7 +131,11 @@ fun CommandScreen(
             viewModel.bleServiceUuid = svc
             viewModel.bleCharUuid = ch
             viewModel.sppUuid = spp
-        }
+        },
+        quickCommands = viewModel.quickCommands,
+        onAddCommand = { viewModel.addQuickCommand(it) },
+        onUpdateCommand = { index, cmd -> viewModel.updateQuickCommand(index, cmd) },
+        onDeleteCommand = { viewModel.deleteQuickCommand(it) }
     )
 }
 
@@ -142,18 +156,16 @@ fun CommandScreenContent(
     bleServiceUuid: String,
     bleCharUuid: String,
     sppUuid: String,
-    onUuidChange: (String, String, String) -> Unit
+    onUuidChange: (String, String, String) -> Unit,
+    quickCommands: List<QuickCommand>,
+    onAddCommand: (QuickCommand) -> Unit,
+    onUpdateCommand: (Int, QuickCommand) -> Unit,
+    onDeleteCommand: (Int) -> Unit
 ) {
-    val quickCommands = listOf(
-        QuickCommand(stringResource(R.string.cmd_led_on),  "LED:ON",  Icons.Default.FlashOn),
-        QuickCommand(stringResource(R.string.cmd_led_off), "LED:OFF", Icons.Default.PowerSettingsNew),
-        QuickCommand(stringResource(R.string.cmd_status),  "STATUS",  Icons.Default.Info),
-        QuickCommand(stringResource(R.string.cmd_read),    "READ",    Icons.Default.Refresh),
-        QuickCommand(stringResource(R.string.cmd_reset),   "RESET",   Icons.Default.Refresh),
-        QuickCommand(stringResource(R.string.cmd_stop),    "STOP",    Icons.Default.Stop, isDestructive = true),
-    )
     var showDeviceSheet by remember { mutableStateOf(false) }
     var showUuidDialog by remember { mutableStateOf(false) }
+    var editingCommandIndex by remember { mutableStateOf<Int?>(null) }
+    var showAddDialog by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -164,6 +176,11 @@ fun CommandScreenContent(
                         fontWeight = FontWeight.SemiBold)
                 },
                 actions = {
+                    FilledTonalIconButton(onClick = { showAddDialog = true },
+                        modifier = Modifier.padding(end = 4.dp)) {
+                        Icon(Icons.Default.Add, contentDescription = "添加指令",
+                            modifier = Modifier.size(20.dp))
+                    }
                     FilledTonalIconButton(onClick = { showUuidDialog = true },
                         modifier = Modifier.padding(end = 8.dp)) {
                         Icon(Icons.Default.Tune, contentDescription = "UUID 设置",
@@ -193,7 +210,11 @@ fun CommandScreenContent(
                 },
                 onDisconnect = onDisconnect
             )
-            QuickCommandSection(quickCommands, onSend = onSend)
+            QuickCommandSection(
+                commands = quickCommands,
+                onSend = onSend,
+                onLongClick = { index -> editingCommandIndex = index }
+            )
             CustomCommandInput(
                 value = customInput,
                 onValueChange = onCustomInputChange,
@@ -216,6 +237,25 @@ fun CommandScreenContent(
                 onConfirm = { svc, ch, spp -> onUuidChange(svc, ch, spp); showUuidDialog = false },
                 onDismiss = { showUuidDialog = false }
             )
+        }
+
+        if (showAddDialog) {
+            QuickCommandEditDialog(
+                command = null,
+                onConfirm = { cmd -> onAddCommand(cmd); showAddDialog = false },
+                onDismiss = { showAddDialog = false }
+            )
+        }
+
+        editingCommandIndex?.let { index ->
+            quickCommands.getOrNull(index)?.let { cmd ->
+                QuickCommandEditDialog(
+                    command = cmd,
+                    onConfirm = { updated -> onUpdateCommand(index, updated); editingCommandIndex = null },
+                    onDismiss = { editingCommandIndex = null },
+                    onDelete = { onDeleteCommand(index); editingCommandIndex = null }
+                )
+            }
         }
     }
 }
@@ -432,7 +472,11 @@ fun DevicesSheet(
 
 // ── QuickCommandSection ───────────────────────────────────────────────────────
 @Composable
-private fun QuickCommandSection(commands: List<QuickCommand>, onSend: (String) -> Unit) {
+private fun QuickCommandSection(
+    commands: List<QuickCommand>,
+    onSend: (String) -> Unit,
+    onLongClick: (Int) -> Unit
+) {
     Column {
         Text(text = stringResource(R.string.quick_commands),
             style = MaterialTheme.typography.titleSmall,
@@ -443,23 +487,36 @@ private fun QuickCommandSection(commands: List<QuickCommand>, onSend: (String) -
             horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
             contentPadding = PaddingValues(0.dp)) {
-            items(commands) { cmd -> QuickCommandCard(cmd, onClick = { onSend(cmd.command) }) }
+            items(commands.size) { index ->
+                QuickCommandCard(
+                    cmd = commands[index],
+                    onClick = { onSend(commands[index].command) },
+                    onLongClick = { onLongClick(index) }
+                )
+            }
         }
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun QuickCommandCard(cmd: QuickCommand, onClick: () -> Unit) {
-    ElevatedCard(onClick = onClick, shape = RoundedCornerShape(14.dp),
+private fun QuickCommandCard(cmd: QuickCommand, onClick: () -> Unit, onLongClick: () -> Unit) {
+    ElevatedCard(
+        shape = RoundedCornerShape(14.dp),
         colors = CardDefaults.elevatedCardColors(
             containerColor = if (cmd.isDestructive) MaterialTheme.colorScheme.errorContainer
-                             else MaterialTheme.colorScheme.surfaceVariant)) {
+                             else MaterialTheme.colorScheme.surfaceVariant),
+        modifier = Modifier.combinedClickable(
+            onClick = onClick,
+            onLongClick = onLongClick
+        )
+    ) {
         Column(modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 14.dp, horizontal = 10.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Icon(imageVector = cmd.icon, contentDescription = null,
+            Icon(imageVector = getIconByName(cmd.iconName), contentDescription = null,
                 tint = if (cmd.isDestructive) MaterialTheme.colorScheme.error
                        else MaterialTheme.colorScheme.primary,
                 modifier = Modifier.size(26.dp))
@@ -528,6 +585,78 @@ private fun UuidConfigDialog(
         dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } }
     )
 }
+
+// ── QuickCommandEditDialog ────────────────────────────────────────────────────
+@Composable
+private fun QuickCommandEditDialog(
+    command: QuickCommand?,
+    onConfirm: (QuickCommand) -> Unit,
+    onDismiss: () -> Unit,
+    onDelete: (() -> Unit)? = null
+) {
+    var label by remember { mutableStateOf(command?.label ?: "") }
+    var cmd by remember { mutableStateOf(command?.command ?: "") }
+    var iconName by remember { mutableStateOf(command?.iconName ?: "Refresh") }
+    var isDestructive by remember { mutableStateOf(command?.isDestructive ?: false) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(if (command == null) "添加快捷指令" else "编辑快捷指令") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                OutlinedTextField(
+                    value = label,
+                    onValueChange = { label = it },
+                    label = { Text("显示名称") },
+                    singleLine = true,
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = cmd,
+                    onValueChange = { cmd = it },
+                    label = { Text("命令内容") },
+                    singleLine = true,
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                    placeholder = { Text("如: READ, RESET") }
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    if (label.isNotBlank() && cmd.isNotBlank()) {
+                        onConfirm(QuickCommand(label, cmd, iconName, isDestructive))
+                    }
+                },
+                enabled = label.isNotBlank() && cmd.isNotBlank()
+            ) {
+                Text("确定")
+            }
+        },
+        dismissButton = {
+            Row {
+                onDelete?.let {
+                    TextButton(
+                        onClick = it,
+                        colors = ButtonDefaults.textButtonColors(
+                            contentColor = MaterialTheme.colorScheme.error
+                        )
+                    ) {
+                        Icon(Icons.Default.Delete, contentDescription = null,
+                            modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("删除")
+                    }
+                }
+                TextButton(onClick = onDismiss) {
+                    Text("取消")
+                }
+            }
+        }
+    )
+}
 /**
 // ── Previews ──────────────────────────────────────────────────────────────────
 
@@ -577,12 +706,19 @@ private fun CommandScreenNoDevicePreview() {
             bleServiceUuid = "0000FFE0-0000-1000-8000-00805F9B34FB",
             bleCharUuid    = "0000FFE1-0000-1000-8000-00805F9B34FB",
             sppUuid        = "00001101-0000-1000-8000-00805F9B34FB",
-            onUuidChange = { _, _, _ -> }
+            onUuidChange = { _, _, _ -> },
+            quickCommands = listOf(
+                QuickCommand("READ", "READ", "Refresh"),
+                QuickCommand("RESET", "RESET", "Refresh"),
+                QuickCommand("STATUS", "STATUS", "Info")
+            ),
+            onAddCommand = {},
+            onUpdateCommand = { _, _ -> },
+            onDeleteCommand = {}
         )
     }
 }
 
-val emptyList = listOf<BleDevice>()
 
 @Preview
 @Composable
@@ -590,12 +726,12 @@ fun DeviceCardPreview(
     device: BleDevice = BleDevice("MCU-STM32-01", "AA:BB:CC:DD:EE:01", -55,
         isConnected = true, isPaired = true, deviceType = DeviceType.BLE),
 ) {
-    AppTheme() {
+    AppTheme {
         DevicesSheet(
             devices = listOf(device),
             showDeviceSheet = true,
-            onDismiss = { },
-            onConnect = { }
+            onDismiss = {},
+            onConnect = {}
         )
     }
 }

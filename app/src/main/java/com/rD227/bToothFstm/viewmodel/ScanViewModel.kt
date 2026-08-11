@@ -30,10 +30,35 @@ import com.rD227.bToothFstm.data.ScanData.DeviceType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
+import org.json.JSONObject
 import java.io.IOException
 import java.util.UUID
 
 enum class ConnectionType { BLE, CLASSIC }
+
+data class QuickCommand(
+    val label: String,
+    val command: String,
+    val iconName: String = "Refresh",
+    val isDestructive: Boolean = false
+) {
+    fun toJson() = JSONObject().apply {
+        put("label", label)
+        put("command", command)
+        put("iconName", iconName)
+        put("isDestructive", isDestructive)
+    }
+
+    companion object {
+        fun fromJson(json: JSONObject) = QuickCommand(
+            label = json.getString("label"),
+            command = json.getString("command"),
+            iconName = json.optString("iconName", "Refresh"),
+            isDestructive = json.optBoolean("isDestructive", false)
+        )
+    }
+}
 
 @SuppressLint("MissingPermission")
 class ScanViewModel(application: Application) : AndroidViewModel(application) {
@@ -43,6 +68,10 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
     var bleCharUuid    by mutableStateOf("0000FFE1-0000-1000-8000-00805F9B34FB")
     var sppUuid        by mutableStateOf("00001101-0000-1000-8000-00805F9B34FB")
 
+    // ── 快捷指令配置 ───────────────────────────────────────────────────────────
+    val quickCommands = mutableStateListOf<QuickCommand>()
+    private val prefs = application.getSharedPreferences("quick_commands", Context.MODE_PRIVATE)
+
     //private val TAG = "ScanViewModel"
     private val TAG = ScanViewModel::class.java.simpleName
 
@@ -51,6 +80,7 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
 
     init {
         if (bluetoothAdapter == null) Log.e(TAG, "FATAL: BluetoothAdapter not found")
+        loadQuickCommands()
     }
 
 
@@ -234,6 +264,51 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
                 isConnected = bt.address == connectedAddress,
                 isPaired = true
             ))
+        }
+    }
+
+    // ── 快捷指令管理 ───────────────────────────────────────────────────────────
+    private fun loadQuickCommands() {
+        val json = prefs.getString("commands", null)
+        if (json == null) {
+            // 默认指令
+            quickCommands.addAll(listOf(
+                QuickCommand("READ", "READ", "Refresh"),
+                QuickCommand("RESET", "RESET", "Refresh"),
+                QuickCommand("STATUS", "STATUS", "Info")
+            ))
+        } else {
+            try {
+                val array = JSONArray(json)
+                for (i in 0 until array.length()) {
+                    quickCommands.add(QuickCommand.fromJson(array.getJSONObject(i)))
+                }
+            } catch (_: Exception) {}
+        }
+    }
+
+    private fun saveQuickCommands() {
+        val array = JSONArray()
+        quickCommands.forEach { array.put(it.toJson()) }
+        prefs.edit().putString("commands", array.toString()).apply()
+    }
+
+    fun addQuickCommand(command: QuickCommand) {
+        quickCommands.add(command)
+        saveQuickCommands()
+    }
+
+    fun updateQuickCommand(index: Int, command: QuickCommand) {
+        if (index in quickCommands.indices) {
+            quickCommands[index] = command
+            saveQuickCommands()
+        }
+    }
+
+    fun deleteQuickCommand(index: Int) {
+        if (index in quickCommands.indices) {
+            quickCommands.removeAt(index)
+            saveQuickCommands()
         }
     }
 
