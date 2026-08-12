@@ -327,6 +327,7 @@ private fun DeviceStatusBanner(
     val isConnected = connectionState.phase == ConnectionPhase.CONNECTED
     val isError = connectionState.phase == ConnectionPhase.ERROR
     val isBusy = connectionState.phase.isOperationInProgress()
+
     val containerColor = when {
         isConnected -> MaterialTheme.colorScheme.secondaryContainer
         isError -> MaterialTheme.colorScheme.errorContainer

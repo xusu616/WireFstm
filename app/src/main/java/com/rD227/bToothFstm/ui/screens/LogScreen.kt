@@ -1,5 +1,9 @@
 package com.rD227.bToothFstm.ui.screens
 
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,7 +24,9 @@ import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
@@ -28,6 +34,8 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -39,6 +47,10 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -57,11 +69,11 @@ import java.util.Locale
 
 enum class LogFilter { ALL, SENT, RECEIVED }
 
-enum class LogTextDisplay { CLEAN, ESCAPED }
+enum class LogCRLFDisplay { CLEAN, ESCAPED }
 
-fun formatLogText(text: String, display: LogTextDisplay): String = when (display) {
-    LogTextDisplay.CLEAN -> text.trimEnd('\r', '\n')
-    LogTextDisplay.ESCAPED -> buildString {
+fun formatLogText(text: String, display: LogCRLFDisplay): String = when (display) {
+    LogCRLFDisplay.CLEAN -> text.trimEnd('\r', '\n')
+    LogCRLFDisplay.ESCAPED -> buildString {
         text.forEach { character ->
             when {
                 character == '\\' -> append("\\\\")
@@ -83,7 +95,7 @@ fun LogScreen(
     modifier: Modifier = Modifier
 ) {
     var filter by remember { mutableStateOf(LogFilter.ALL) }
-    var textDisplay by rememberSaveable { mutableStateOf(LogTextDisplay.CLEAN) }
+    var textDisplay by rememberSaveable { mutableStateOf(LogCRLFDisplay.CLEAN) }
     LogScreenContent(
         modifier = modifier,
         logs = scanViewModel.logs,
@@ -95,14 +107,38 @@ fun LogScreen(
     )
 }
 
+@Composable
+fun RoundIconButton(iconRes: Int, rotation: Float, onClick: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .size(56.dp)
+            .clip(CircleShape)
+            .background(MaterialTheme.colorScheme.primaryContainer)
+            .clickable {
+                onClick()
+            }
+            .padding(12.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Image(
+            painter = painterResource(id = iconRes),
+            contentDescription = null,
+            modifier = Modifier
+                .size(28.dp)
+                .rotate(rotation),
+            colorFilter = ColorFilter.tint(MaterialTheme.colorScheme.primary)
+        )
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LogScreenContent(
     logs: List<LogEntry>,
     filter: LogFilter,
     onFilterChange: (LogFilter) -> Unit,
-    textDisplay: LogTextDisplay,
-    onTextDisplayChange: (LogTextDisplay) -> Unit,
+    textDisplay: LogCRLFDisplay,
+    onTextDisplayChange: (LogCRLFDisplay) -> Unit,
     onClear: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -114,6 +150,12 @@ fun LogScreenContent(
     val timestampFormatter = remember {
         SimpleDateFormat("HH:mm:ss.SSS", Locale.getDefault())
     }
+
+    val rightMenuVisible = remember { mutableStateOf(false) }
+    val gearRotation by animateFloatAsState(
+        targetValue = if (rightMenuVisible.value) 180f else 0f,
+        label = "gear-rotation"
+    )
 
     Scaffold(
         topBar = {
@@ -133,6 +175,11 @@ fun LogScreenContent(
                             tint = MaterialTheme.colorScheme.error
                         )
                     }
+                    RoundIconButton(
+                        iconRes = R.drawable.gear,
+                        rotation = 0f,
+                        onClick = {}
+                    )
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surface
@@ -146,11 +193,12 @@ fun LogScreenContent(
                 .fillMaxSize()
                 .padding(innerPadding)
         ) {
-            LogFilterRow(filter = filter, onFilterChange = onFilterChange)
+            LogFilterRow(filter = filter, onFilterChange = onFilterChange, textDisplay = textDisplay, onTextDisplayChange = onTextDisplayChange)
             LogTextDisplayRow(
                 textDisplay = textDisplay,
                 onTextDisplayChange = onTextDisplayChange
             )
+
             if (displayedLogs.isEmpty()) {
                 EmptyLogPlaceholder(Modifier.weight(1f))
             } else {
@@ -173,7 +221,11 @@ fun LogScreenContent(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun LogFilterRow(filter: LogFilter, onFilterChange: (LogFilter) -> Unit) {
+private fun LogFilterRow(
+    filter: LogFilter,
+    onFilterChange: (LogFilter) -> Unit,
+    textDisplay: LogCRLFDisplay,
+    onTextDisplayChange: (LogCRLFDisplay) -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -196,13 +248,33 @@ private fun LogFilterRow(filter: LogFilter, onFilterChange: (LogFilter) -> Unit)
                 )
             )
         }
+        Spacer(modifier = Modifier.weight(1f))
+        Box(
+            modifier = Modifier.align(Alignment.CenterVertically)
+        ) {
+            LogCRLFDisplay.entries.forEach { candidate ->
+                Switch(
+                    checked = textDisplay == candidate,
+                    onCheckedChange = {isChecked ->
+                        if (isChecked) LogCRLFDisplay.ESCAPED else LogCRLFDisplay.CLEAN
+                    },
+                    colors = SwitchDefaults.colors(MaterialTheme.colorScheme.onPrimaryContainer)
+                )
+            }
+        }
     }
 }
 
 @Composable
+private fun CRLFDisplayButton(){
+
+}
+
+
+@Composable
 private fun LogTextDisplayRow(
-    textDisplay: LogTextDisplay,
-    onTextDisplayChange: (LogTextDisplay) -> Unit
+    textDisplay: LogCRLFDisplay,
+    onTextDisplayChange: (LogCRLFDisplay) -> Unit
 ) {
     Row(
         modifier = Modifier
@@ -210,14 +282,14 @@ private fun LogTextDisplayRow(
             .padding(horizontal = 16.dp, vertical = 0.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        LogTextDisplay.entries.forEach { candidate ->
+        LogCRLFDisplay.entries.forEach { candidate ->
             FilterChip(
                 selected = textDisplay == candidate,
                 onClick = { onTextDisplayChange(candidate) },
                 label = {
                     Text(
                         stringResource(
-                            if (candidate == LogTextDisplay.CLEAN) {
+                            if (candidate == LogCRLFDisplay.CLEAN) {
                                 R.string.log_display_clean
                             } else {
                                 R.string.log_display_escaped
@@ -238,7 +310,7 @@ private fun LogTextDisplayRow(
 private fun LogEntryRow(
     entry: LogEntry,
     formattedTimestamp: String,
-    textDisplay: LogTextDisplay
+    textDisplay: LogCRLFDisplay
 ) {
     val isSent = entry.direction == LogDirection.SENT
     Row(
@@ -397,7 +469,7 @@ private fun LogScreenPreview() {
             ),
             filter = LogFilter.ALL,
             onFilterChange = {},
-            textDisplay = LogTextDisplay.CLEAN,
+            textDisplay = LogCRLFDisplay.CLEAN,
             onTextDisplayChange = {},
             onClear = {}
         )
