@@ -85,6 +85,8 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.rD227.bToothFstm.R
+import com.rD227.bToothFstm.data.CommandScreenActions
+import com.rD227.bToothFstm.data.CommandScreenUiState
 import com.rD227.bToothFstm.data.ConnectionPhase
 import com.rD227.bToothFstm.data.ConnectionType
 import com.rD227.bToothFstm.data.ConnectionUiState
@@ -152,29 +154,33 @@ fun CommandScreen(
     }
 
     CommandScreenContent(
+        state = CommandScreenUiState(
+            connectionState = connectionState,
+            targetDevice = targetDevice,
+            pairedDevices = scanViewModel.pairedDevices,
+            customInput = customInput,
+            bleServiceUuid = scanViewModel.transportConfig.bleServiceUuid.toString(),
+            bleCharUuid = scanViewModel.transportConfig.bleCharacteristicUuid.toString(),
+            sppUuid = scanViewModel.transportConfig.sppUuid.toString(),
+            quickCommands = commandViewModel.quickCommands
+        ),
+        actions = CommandScreenActions(
+            onCustomInputChange = { customInput = it },
+            onQuickSend = { scanViewModel.sendCommand(it) },
+            onCustomSend = { submittedText ->
+                val requestId = scanViewModel.sendCommand(submittedText)
+                pendingCustomRequestId = requestId
+                pendingCustomText = submittedText
+            },
+            onConnect = scanViewModel::connectDevice,
+            onDisconnect = scanViewModel::disconnectDevice,
+            onLoadPairedDevices = scanViewModel::loadPairedDevices,
+            onUuidChange = scanViewModel::updateTransportConfig,
+            onAddCommand = commandViewModel::addQuickCommand,
+            onUpdateCommand = commandViewModel::updateQuickCommand,
+            onDeleteCommand = commandViewModel::deleteQuickCommand
+        ),
         modifier = modifier,
-        connectionState = connectionState,
-        targetDevice = targetDevice,
-        pairedDevices = scanViewModel.pairedDevices,
-        customInput = customInput,
-        onCustomInputChange = { customInput = it },
-        onQuickSend = { scanViewModel.sendCommand(it) },
-        onCustomSend = { submittedText ->
-            val requestId = scanViewModel.sendCommand(submittedText)
-            pendingCustomRequestId = requestId
-            pendingCustomText = submittedText
-        },
-        onConnect = scanViewModel::connectDevice,
-        onDisconnect = scanViewModel::disconnectDevice,
-        onLoadPairedDevices = scanViewModel::loadPairedDevices,
-        bleServiceUuid = scanViewModel.transportConfig.bleServiceUuid.toString(),
-        bleCharUuid = scanViewModel.transportConfig.bleCharacteristicUuid.toString(),
-        sppUuid = scanViewModel.transportConfig.sppUuid.toString(),
-        onUuidChange = scanViewModel::updateTransportConfig,
-        quickCommands = commandViewModel.quickCommands,
-        onAddCommand = commandViewModel::addQuickCommand,
-        onUpdateCommand = commandViewModel::updateQuickCommand,
-        onDeleteCommand = commandViewModel::deleteQuickCommand,
         snackbarHost = { SnackbarHost(snackbarHostState) }
     )
 }
@@ -182,32 +188,16 @@ fun CommandScreen(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CommandScreenContent(
+    state: CommandScreenUiState,
+    actions: CommandScreenActions,
     modifier: Modifier = Modifier,
-    connectionState: ConnectionUiState,
-    targetDevice: BleDevice?,
-    pairedDevices: List<BleDevice>,
-    customInput: String,
-    onCustomInputChange: (String) -> Unit,
-    onQuickSend: (String) -> Unit,
-    onCustomSend: (String) -> Unit,
-    onConnect: (BleDevice) -> Unit,
-    onDisconnect: () -> Unit,
-    onLoadPairedDevices: () -> Unit,
-    bleServiceUuid: String,
-    bleCharUuid: String,
-    sppUuid: String,
-    onUuidChange: (String, String, String) -> UuidUpdateResult,
-    quickCommands: List<QuickCommand>,
-    onAddCommand: (QuickCommand) -> Unit,
-    onUpdateCommand: (Int, QuickCommand) -> Unit,
-    onDeleteCommand: (Int) -> Unit,
     snackbarHost: @Composable () -> Unit = {}
 ) {
     var showDeviceSheet by remember { mutableStateOf(false) }
     var showUuidDialog by remember { mutableStateOf(false) }
     var editingCommandIndex by remember { mutableStateOf<Int?>(null) }
     var showAddDialog by remember { mutableStateOf(false) }
-    val operationInProgress = connectionState.phase.isOperationInProgress()
+    val operationInProgress = state.connectionState.phase.isOperationInProgress()
 
     Scaffold(
         topBar = {
@@ -257,41 +247,41 @@ fun CommandScreenContent(
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             DeviceStatusBanner(
-                connectionState = connectionState,
-                targetDevice = targetDevice,
+                connectionState = state.connectionState,
+                targetDevice = state.targetDevice,
                 onSelectDevice = {
-                    onLoadPairedDevices()
+                    actions.onLoadPairedDevices()
                     showDeviceSheet = true
                 },
-                onDisconnect = onDisconnect
+                onDisconnect = actions.onDisconnect
             )
             QuickCommandSection(
-                commands = quickCommands,
-                onSend = onQuickSend,
+                commands = state.quickCommands,
+                onSend = actions.onQuickSend,
                 onLongClick = { editingCommandIndex = it }
             )
             CustomCommandInput(
-                value = customInput,
-                onValueChange = onCustomInputChange,
-                onSend = { onCustomSend(customInput) }
+                value = state.customInput,
+                onValueChange = actions.onCustomInputChange,
+                onSend = { actions.onCustomSend(state.customInput) }
             )
         }
 
         DevicesSheet(
-            devices = pairedDevices,
+            devices = state.pairedDevices,
             showDeviceSheet = showDeviceSheet,
             operationInProgress = operationInProgress,
-            activeAddress = connectionState.address,
+            activeAddress = state.connectionState.address,
             onDismiss = { showDeviceSheet = false },
-            onConnect = onConnect
+            onConnect = actions.onConnect
         )
 
         if (showUuidDialog) {
             UuidConfigDialog(
-                bleServiceUuid = bleServiceUuid,
-                bleCharUuid = bleCharUuid,
-                sppUuid = sppUuid,
-                onConfirm = onUuidChange,
+                bleServiceUuid = state.bleServiceUuid,
+                bleCharUuid = state.bleCharUuid,
+                sppUuid = state.sppUuid,
+                onConfirm = actions.onUuidChange,
                 onDismiss = { showUuidDialog = false },
                 onSuccess = { showUuidDialog = false }
             )
@@ -301,7 +291,7 @@ fun CommandScreenContent(
             QuickCommandEditDialog(
                 command = null,
                 onConfirm = {
-                    onAddCommand(it)
+                    actions.onAddCommand(it)
                     showAddDialog = false
                 },
                 onDismiss = { showAddDialog = false }
@@ -309,16 +299,16 @@ fun CommandScreenContent(
         }
 
         editingCommandIndex?.let { index ->
-            quickCommands.getOrNull(index)?.let { command ->
+            state.quickCommands.getOrNull(index)?.let { command ->
                 QuickCommandEditDialog(
                     command = command,
                     onConfirm = {
-                        onUpdateCommand(index, it)
+                        actions.onUpdateCommand(index, it)
                         editingCommandIndex = null
                     },
                     onDismiss = { editingCommandIndex = null },
                     onDelete = {
-                        onDeleteCommand(index)
+                        actions.onDeleteCommand(index)
                         editingCommandIndex = null
                     }
                 )
@@ -609,7 +599,7 @@ private fun QuickCommandSection(
             columns = GridCells.Fixed(3),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
-            contentPadding = PaddingValues(0.dp)
+            contentPadding = PaddingValues(4.dp)
         ) {
             items(commands.size) { index ->
                 QuickCommandCard(
@@ -983,36 +973,40 @@ private fun sendResultMessage(result: SendResult?): String? = when (result) {
 private fun CommandScreenNoDevicePreview() {
     AppTheme(dynamicColor = false) {
         CommandScreenContent(
-            connectionState = ConnectionUiState(),
-            targetDevice = null,
-            pairedDevices = emptyList(),
-            customInput = "",
-            onCustomInputChange = {},
-            onQuickSend = {},
-            onCustomSend = {},
-            onConnect = {},
-            onDisconnect = {},
-            onLoadPairedDevices = {},
-            bleServiceUuid = "0000ffe0-0000-1000-8000-00805f9b34fb",
-            bleCharUuid = "0000ffe1-0000-1000-8000-00805f9b34fb",
-            sppUuid = "00001101-0000-1000-8000-00805f9b34fb",
-            onUuidChange = { service, characteristic, spp ->
-                UuidUpdateResult.Success(
-                    com.rD227.bToothFstm.data.TransportConfig(
-                        UUID.fromString(service),
-                        UUID.fromString(characteristic),
-                        UUID.fromString(spp)
-                    )
+            state = CommandScreenUiState(
+                connectionState = ConnectionUiState(),
+                targetDevice = null,
+                pairedDevices = emptyList(),
+                customInput = "",
+                bleServiceUuid = "0000ffe0-0000-1000-8000-00805f9b34fb",
+                bleCharUuid = "0000ffe1-0000-1000-8000-00805f9b34fb",
+                sppUuid = "00001101-0000-1000-8000-00805f9b34fb",
+                quickCommands = listOf(
+                    QuickCommand("READ", "READ", "Refresh"),
+                    QuickCommand("RESET", "RESET", "Refresh"),
+                    QuickCommand("STATUS", "STATUS", "Info")
                 )
-            },
-            quickCommands = listOf(
-                QuickCommand("READ", "READ", "Refresh"),
-                QuickCommand("RESET", "RESET", "Refresh"),
-                QuickCommand("STATUS", "STATUS", "Info")
             ),
-            onAddCommand = {},
-            onUpdateCommand = { _, _ -> },
-            onDeleteCommand = {}
+            actions = CommandScreenActions(
+                onCustomInputChange = {},
+                onQuickSend = {},
+                onCustomSend = {},
+                onConnect = {},
+                onDisconnect = {},
+                onLoadPairedDevices = {},
+                onUuidChange = { service, characteristic, spp ->
+                    UuidUpdateResult.Success(
+                        com.rD227.bToothFstm.data.TransportConfig(
+                            UUID.fromString(service),
+                            UUID.fromString(characteristic),
+                            UUID.fromString(spp)
+                        )
+                    )
+                },
+                onAddCommand = {},
+                onUpdateCommand = { _, _ -> },
+                onDeleteCommand = {}
+            )
         )
     }
 }
