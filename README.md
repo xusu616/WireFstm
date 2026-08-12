@@ -3,6 +3,12 @@
 
 waiting....
 
+# TODO
+
+GPT sol add a val in the command data class
+
+It's useless
+
 
 
 ## License
