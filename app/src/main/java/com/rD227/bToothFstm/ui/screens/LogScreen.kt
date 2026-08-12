@@ -1,5 +1,6 @@
 package com.rD227.bToothFstm.ui.screens
 
+import android.widget.Space
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -177,8 +178,8 @@ fun LogScreenContent(
                     }
                     RoundIconButton(
                         iconRes = R.drawable.gear,
-                        rotation = 0f,
-                        onClick = {}
+                        rotation = gearRotation,
+                        onClick = { rightMenuVisible.value = !rightMenuVisible.value }
                     )
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -194,16 +195,15 @@ fun LogScreenContent(
                 .padding(innerPadding)
         ) {
             LogFilterRow(filter = filter, onFilterChange = onFilterChange, textDisplay = textDisplay, onTextDisplayChange = onTextDisplayChange)
-            LogTextDisplayRow(
-                textDisplay = textDisplay,
-                onTextDisplayChange = onTextDisplayChange
-            )
-
+            //LogTextDisplayRow(
+            //    textDisplay = textDisplay,
+            //    onTextDisplayChange = onTextDisplayChange
+            //)
             if (displayedLogs.isEmpty()) {
                 EmptyLogPlaceholder(Modifier.weight(1f))
             } else {
                 LazyColumn(
-                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 0.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     items(displayedLogs, key = { it.id }) { entry ->
@@ -256,20 +256,14 @@ private fun LogFilterRow(
                 Switch(
                     checked = textDisplay == candidate,
                     onCheckedChange = {isChecked ->
-                        if (isChecked) LogCRLFDisplay.ESCAPED else LogCRLFDisplay.CLEAN
+                        onTextDisplayChange( if (isChecked) LogCRLFDisplay.ESCAPED else LogCRLFDisplay.CLEAN)
                     },
-                    colors = SwitchDefaults.colors(MaterialTheme.colorScheme.onPrimaryContainer)
+                    colors = SwitchDefaults.colors(MaterialTheme.colorScheme.primaryContainer)
                 )
             }
         }
     }
 }
-
-@Composable
-private fun CRLFDisplayButton(){
-
-}
-
 
 @Composable
 private fun LogTextDisplayRow(
@@ -279,7 +273,7 @@ private fun LogTextDisplayRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 0.dp),
+            .padding(horizontal = 16.dp, vertical = 4.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         LogCRLFDisplay.entries.forEach { candidate ->
