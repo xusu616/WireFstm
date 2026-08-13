@@ -1,6 +1,5 @@
 package com.rD227.bToothFstm.ui.screens
 
-import android.widget.Space
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -25,9 +24,7 @@ import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.History
-import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
@@ -62,13 +59,12 @@ import com.rD227.bToothFstm.R
 import com.rD227.bToothFstm.data.ConnectionType
 import com.rD227.bToothFstm.data.LogDirection
 import com.rD227.bToothFstm.data.LogEntry
+import com.rD227.bToothFstm.data.LogFilter
 import com.rD227.bToothFstm.ui.theme.AppTheme
-import com.rD227.bToothFstm.viewmodel.ScanViewModel
+import com.rD227.bToothFstm.data.LogData
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-
-enum class LogFilter { ALL, SENT, RECEIVED }
 
 enum class LogCRLFDisplay { CLEAN, ESCAPED }
 
@@ -92,19 +88,17 @@ fun formatLogText(text: String, display: LogCRLFDisplay): String = when (display
 
 @Composable
 fun LogScreen(
-    scanViewModel: ScanViewModel,
     modifier: Modifier = Modifier
 ) {
     var filter by remember { mutableStateOf(LogFilter.ALL) }
     var textDisplay by rememberSaveable { mutableStateOf(LogCRLFDisplay.CLEAN) }
     LogScreenContent(
         modifier = modifier,
-        logs = scanViewModel.logs,
         filter = filter,
         onFilterChange = { filter = it },
         textDisplay = textDisplay,
         onTextDisplayChange = { textDisplay = it },
-        onClear = scanViewModel::clearLogs
+        onClear = LogData::clearLogs
     )
 }
 
@@ -135,7 +129,6 @@ fun RoundIconButton(iconRes: Int, rotation: Float, onClick: () -> Unit) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LogScreenContent(
-    logs: List<LogEntry>,
     filter: LogFilter,
     onFilterChange: (LogFilter) -> Unit,
     textDisplay: LogCRLFDisplay,
@@ -143,11 +136,7 @@ fun LogScreenContent(
     onClear: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val displayedLogs = when (filter) {
-        LogFilter.ALL -> logs
-        LogFilter.SENT -> logs.filter { it.direction == LogDirection.SENT }
-        LogFilter.RECEIVED -> logs.filter { it.direction == LogDirection.RECEIVED }
-    }
+    val displayedLogs = LogData.displayedLogs(filter)
     val timestampFormatter = remember {
         SimpleDateFormat("HH:mm:ss.SSS", Locale.getDefault())
     }
@@ -169,7 +158,7 @@ fun LogScreenContent(
                     )
                 },
                 actions = {
-                    IconButton(onClick = onClear, enabled = logs.isNotEmpty()) {
+                    IconButton(onClick = onClear, enabled = LogData.logs.isNotEmpty()) {
                         Icon(
                             Icons.Default.DeleteOutline,
                             contentDescription = stringResource(R.string.log_clear),
@@ -252,15 +241,13 @@ private fun LogFilterRow(
         Box(
             modifier = Modifier.align(Alignment.CenterVertically)
         ) {
-            LogCRLFDisplay.entries.forEach { candidate ->
-                Switch(
-                    checked = textDisplay == candidate,
-                    onCheckedChange = {isChecked ->
-                        onTextDisplayChange( if (isChecked) LogCRLFDisplay.ESCAPED else LogCRLFDisplay.CLEAN)
-                    },
-                    colors = SwitchDefaults.colors(MaterialTheme.colorScheme.primaryContainer)
-                )
-            }
+            Switch(
+                checked = textDisplay == LogCRLFDisplay.ESCAPED,
+                onCheckedChange = { isChecked ->
+                    onTextDisplayChange(if (isChecked) LogCRLFDisplay.ESCAPED else LogCRLFDisplay.CLEAN)
+                },
+                colors = SwitchDefaults.colors(MaterialTheme.colorScheme.primaryContainer)
+            )
         }
     }
 }
@@ -301,7 +288,7 @@ private fun LogTextDisplayRow(
 }
 
 @Composable
-private fun LogEntryRow(
+fun LogEntryRow(
     entry: LogEntry,
     formattedTimestamp: String,
     textDisplay: LogCRLFDisplay
@@ -409,7 +396,7 @@ private fun LogEntryRow(
 }
 
 @Composable
-private fun EmptyLogPlaceholder(modifier: Modifier = Modifier) {
+fun EmptyLogPlaceholder(modifier: Modifier = Modifier) {
     Box(modifier = modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Icon(
@@ -443,24 +430,6 @@ private fun compactAddress(address: String): String {
 private fun LogScreenPreview() {
     AppTheme(dynamicColor = false) {
         LogScreenContent(
-            logs = listOf(
-                LogEntry(
-                    id = 1,
-                    timestamp = 1_754_896_921_123,
-                    direction = LogDirection.SENT,
-                    text = "LED:ON",
-                    type = ConnectionType.BLE,
-                    address = "AA:BB:CC:DD:EE:01"
-                ),
-                LogEntry(
-                    id = 2,
-                    timestamp = 1_754_896_921_456,
-                    direction = LogDirection.RECEIVED,
-                    text = "OK: LED state = ON",
-                    type = ConnectionType.CLASSIC,
-                    address = "AA:BB:CC:DD:EE:02"
-                )
-            ),
             filter = LogFilter.ALL,
             onFilterChange = {},
             textDisplay = LogCRLFDisplay.CLEAN,

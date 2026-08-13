@@ -29,6 +29,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
@@ -90,6 +91,8 @@ import com.rD227.bToothFstm.data.CommandScreenUiState
 import com.rD227.bToothFstm.data.ConnectionPhase
 import com.rD227.bToothFstm.data.ConnectionType
 import com.rD227.bToothFstm.data.ConnectionUiState
+import com.rD227.bToothFstm.data.LogData
+import com.rD227.bToothFstm.data.LogFilter
 import com.rD227.bToothFstm.data.QuickCommand
 import com.rD227.bToothFstm.data.ScanData.BleDevice
 import com.rD227.bToothFstm.data.SendFailureReason
@@ -101,6 +104,9 @@ import com.rD227.bToothFstm.data.UuidUpdateResult
 import com.rD227.bToothFstm.ui.theme.AppTheme
 import com.rD227.bToothFstm.viewmodel.CommandViewModel
 import com.rD227.bToothFstm.viewmodel.ScanViewModel
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import java.util.UUID
 
 @Composable
@@ -198,6 +204,9 @@ fun CommandScreenContent(
     var editingCommandIndex by remember { mutableStateOf<Int?>(null) }
     var showAddDialog by remember { mutableStateOf(false) }
     val operationInProgress = state.connectionState.phase.isOperationInProgress()
+    val displayedLogs = LogData.displayedLogs(LogFilter.ALL)
+    val timestampFormatter = remember { SimpleDateFormat("HH:mm:ss.SSS", Locale.getDefault()) }
+    val textDisplay = LogCRLFDisplay.CLEAN
 
     Scaffold(
         topBar = {
@@ -265,6 +274,29 @@ fun CommandScreenContent(
                 onValueChange = actions.onCustomInputChange,
                 onSend = { actions.onCustomSend(state.customInput) }
             )
+            Text(
+                stringResource(R.string.quicklyLog),
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(bottom = 10.dp)
+            )
+            if (displayedLogs.isEmpty()) {
+                EmptyLogPlaceholder(Modifier.weight(1f))
+            } else {
+                LazyColumn(
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 0.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(displayedLogs, key = { it.id }) { entry ->
+                        LogEntryRow(
+                            entry = entry,
+                            formattedTimestamp = timestampFormatter.format(Date(entry.timestamp)),
+                            textDisplay = textDisplay
+                        )
+                    }
+                }
+            }
         }
 
         DevicesSheet(

@@ -39,6 +39,8 @@ import com.rD227.bToothFstm.data.SendResult
 import com.rD227.bToothFstm.data.TransportConfig
 import com.rD227.bToothFstm.data.TransportError
 import com.rD227.bToothFstm.data.TransportErrorKind
+import com.rD227.bToothFstm.data.Utf8StreamDecoder
+import com.rD227.bToothFstm.data.LogData
 import com.rD227.bToothFstm.data.UuidField
 import com.rD227.bToothFstm.data.UuidUpdateResult
 import com.rD227.bToothFstm.data.bleChunkSize
@@ -96,9 +98,7 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
     var transportConfig by mutableStateOf(loadTransportConfig())
         private set
 
-    private val _logs = mutableStateListOf<LogEntry>()
-    val logs: List<LogEntry>
-        get() = _logs
+
 
     var lastSendResult by mutableStateOf<SendResult?>(null)
         private set
@@ -136,7 +136,6 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
 
     private val pendingSends = linkedMapOf<Long, PendingSend>()
     private val nextSendId = AtomicLong(0L)
-    private val nextLogId = AtomicLong(0L)
 
     init {
         if (bluetoothAdapter == null) {
@@ -470,9 +469,6 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
         if (lastSendResult?.requestId == requestId) lastSendResult = null
     }
 
-    fun clearLogs() {
-        _logs.clear()
-    }
 
     private val leScanCallback = object : ScanCallback() {
         override fun onScanResult(callbackType: Int, result: ScanResult) {
@@ -881,7 +877,7 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
             if (characteristic.uuid != bleCharacteristic?.uuid) return@launch
             val text = bleDecoder?.decode(value).orEmpty()
             if (text.isNotEmpty()) {
-                appendLog(LogDirection.RECEIVED, text, ConnectionType.BLE, gatt.device.address)
+                LogData.appendLog(LogDirection.RECEIVED, text, ConnectionType.BLE, gatt.device.address)
             }
         }
     }
@@ -1008,7 +1004,7 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
     private fun finishActiveBleSend(generation: Long) {
         val active = activeBleSend ?: return
         activeBleSend = null
-        appendLog(
+        LogData.appendLog(
             LogDirection.SENT,
             active.pending.text,
             active.pending.type,
@@ -1131,7 +1127,7 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
                         }
                         cancelClassicSendTimeout()
                         if (generation == connectionGeneration && pendingSends.containsKey(pending.requestId)) {
-                            appendLog(
+                            LogData.appendLog(
                                 LogDirection.SENT,
                                 pending.text,
                                 ConnectionType.CLASSIC,
@@ -1198,7 +1194,7 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
                         if (generation == connectionGeneration) {
                             val text = classicDecoder?.decode(copy).orEmpty()
                             if (text.isNotEmpty()) {
-                                appendLog(LogDirection.RECEIVED, text, ConnectionType.CLASSIC, address)
+                                LogData.appendLog(LogDirection.RECEIVED, text, ConnectionType.CLASSIC, address)
                             }
                         }
                     }
@@ -1261,9 +1257,9 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
         val bleTail = if (type == ConnectionType.BLE) bleDecoder?.finish().orEmpty() else ""
         val classicTail = if (type == ConnectionType.CLASSIC) classicDecoder?.finish().orEmpty() else ""
         if (address != null) {
-            if (bleTail.isNotEmpty()) appendLog(LogDirection.RECEIVED, bleTail, ConnectionType.BLE, address)
+            if (bleTail.isNotEmpty()) LogData.appendLog(LogDirection.RECEIVED, bleTail, ConnectionType.BLE, address)
             if (classicTail.isNotEmpty()) {
-                appendLog(LogDirection.RECEIVED, classicTail, ConnectionType.CLASSIC, address)
+                LogData.appendLog(LogDirection.RECEIVED, classicTail, ConnectionType.CLASSIC, address)
             }
         }
         connectionGeneration++
@@ -1387,25 +1383,7 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private fun appendLog(
-        direction: LogDirection,
-        text: String,
-        type: ConnectionType,
-        address: String
-    ) {
-        if (text.isEmpty()) return
-        _logs.add(
-            LogEntry(
-                id = nextLogId.incrementAndGet(),
-                timestamp = System.currentTimeMillis(),
-                direction = direction,
-                text = text,
-                type = type,
-                address = address
-            )
-        )
-        while (_logs.size > MAX_LOG_ENTRIES) _logs.removeAt(0)
-    }
+
 
     private fun upsertDevice(device: BluetoothDevice, rssi: Int, scanSource: ConnectionType) {
         val address = try {
@@ -1630,38 +1608,7 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
         var chunkIndex: Int = 0
     )
 
-    private class Utf8StreamDecoder {
-        private val decoder = StandardCharsets.UTF_8.newDecoder()
-            .onMalformedInput(CodingErrorAction.REPLACE)
-            .onUnmappableCharacter(CodingErrorAction.REPLACE)
-        private var remainder = ByteArray(0)
-        private var finished = false
 
-        fun decode(bytes: ByteArray): String {
-            if (finished || bytes.isEmpty()) return ""
-            val combined = ByteArray(remainder.size + bytes.size)
-            remainder.copyInto(combined)
-            bytes.copyInto(combined, remainder.size)
-            val input = ByteBuffer.wrap(combined)
-            val output = CharBuffer.allocate(maxOf(1, combined.size + 1))
-            decoder.decode(input, output, false)
-            remainder = ByteArray(input.remaining()).also { input.get(it) }
-            output.flip()
-            return output.toString()
-        }
-
-        fun finish(): String {
-            if (finished) return ""
-            finished = true
-            val input = ByteBuffer.wrap(remainder)
-            val output = CharBuffer.allocate(maxOf(2, remainder.size + 2))
-            decoder.decode(input, output, true)
-            decoder.flush(output)
-            remainder = ByteArray(0)
-            output.flip()
-            return output.toString()
-        }
-    }
 
     private companion object {
         const val PREFERENCES_NAME = "transport_config"
@@ -1682,7 +1629,7 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
         const val MAX_PENDING_SENDS = 32
         const val MAX_DISCOVERED_DEVICES = 100
         const val MIN_RSSI_CHANGE_DBM = 3
-        const val MAX_LOG_ENTRIES = 500
+
 
         val DEFAULT_BLE_SERVICE_UUID: UUID =
             UUID.fromString("0000FFE0-0000-1000-8000-00805F9B34FB")

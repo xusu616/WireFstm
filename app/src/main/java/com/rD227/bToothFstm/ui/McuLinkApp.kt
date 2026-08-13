@@ -206,7 +206,6 @@ fun McuLinkApp() {
                 modifier = screenModifier
             )
             AppScreen.Log.route -> LogScreen(
-                scanViewModel = scanViewModel,
                 modifier = screenModifier
             )
         }
