@@ -5,7 +5,6 @@ import android.app.Application
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothManager
-import android.bluetooth.BluetoothSocket
 import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
@@ -33,21 +32,17 @@ import com.rD227.bToothFstm.data.TransportConfig
 import com.rD227.bToothFstm.data.TransportError
 import com.rD227.bToothFstm.data.TransportErrorKind
 import com.rD227.bToothFstm.util.BleConnectionManager
-import com.rD227.bToothFstm.util.Utf8StreamDecoder
+import com.rD227.bToothFstm.util.ClassicConnectionManager
 import com.rD227.bToothFstm.data.LogData
 import com.rD227.bToothFstm.data.PendingSend
 import com.rD227.bToothFstm.data.UuidField
 import com.rD227.bToothFstm.data.UuidUpdateResult
 import com.rD227.bToothFstm.data.frameCommand
 import com.rD227.bToothFstm.data.resolveDeviceType
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import java.io.IOException
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicLong
 
@@ -103,15 +98,6 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
 
     private var connectionTimeoutJob: Job? = null
 
-    private var classicSocket: BluetoothSocket? = null
-    private var classicSendChannel: Channel<PendingSend>? = null
-    private var classicConnectJob: Job? = null
-    private var classicWriterJob: Job? = null
-    private var classicReaderJob: Job? = null
-    private var classicSendTimeoutJob: Job? = null
-    private var classicSendTimedOut = false
-    private var classicDecoder: Utf8StreamDecoder? = null
-
     private val pendingSends = linkedMapOf<Long, PendingSend>()
     private val nextSendId = AtomicLong(0L)
 
@@ -125,6 +111,20 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
             markConnected(address, true)
         },
         onSendComplete = ::completeSend,
+        onFailed = ::failConnection,
+    )
+
+    private val classicManager = ClassicConnectionManager(
+        adapter = bluetoothAdapter,
+        scope = viewModelScope,
+        onState = { connectionState = it },
+        onConnected = { address ->
+            connectionTimeoutJob?.cancel()
+            connectionTimeoutJob = null
+            markConnected(address, true)
+        },
+        onSendComplete = ::completeSend,
+        isPending = { requestId -> pendingSends.containsKey(requestId) },
         onFailed = ::failConnection,
     )
 
@@ -426,28 +426,7 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
             pendingSends[requestId] = pending
             when (pending.type) {
                 ConnectionType.BLE -> bleManager.enqueue(pending, connectionGeneration)
-                ConnectionType.CLASSIC -> {
-                    val channel = classicSendChannel
-                    val queued = channel?.trySend(pending)
-                    if (queued == null || queued.isFailure) {
-                        completeSend(
-                            pending,
-                            SendResult.Failed(
-                                requestId,
-                                if (channel == null || queued?.exceptionOrNull() != null) {
-                                    SendFailureReason.DISCONNECTED
-                                } else {
-                                    SendFailureReason.QUEUE_FULL
-                                },
-                                if (channel == null || queued?.exceptionOrNull() != null) {
-                                    "Classic writer is unavailable"
-                                } else {
-                                    "Send queue is full"
-                                }
-                            )
-                        )
-                    }
-                }
+                ConnectionType.CLASSIC -> classicManager.enqueue(pending, connectionGeneration)
             }
         }
         return requestId
@@ -551,210 +530,7 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
         pendingBondAddress = null
         pendingBondGeneration = 0L
         unregisterBondReceiver()
-        connectionState = ConnectionUiState(
-            ConnectionPhase.CONNECTING,
-            device.address,
-            ConnectionType.CLASSIC
-        )
-        try {
-            bluetoothAdapter?.cancelDiscovery()
-        } catch (error: SecurityException) {
-            failConnection(
-                generation,
-                TransportError(TransportErrorKind.SECURITY_ERROR, error.message ?: "Cannot cancel discovery")
-            )
-            return
-        }
-
-        classicConnectJob?.cancel()
-        classicConnectJob = viewModelScope.launch(Dispatchers.IO) {
-            var socket: BluetoothSocket? = null
-            try {
-                socket = device.createRfcommSocketToServiceRecord(transportConfig.sppUuid)
-                withContext(Dispatchers.Main.immediate) {
-                    if (generation != connectionGeneration) {
-                        safeCloseSocket(socket)
-                        return@withContext
-                    }
-                    classicSocket = socket
-                }
-                if (generation != connectionGeneration) {
-                    safeCloseSocket(socket)
-                    return@launch
-                }
-                socket.connect()
-                withContext(Dispatchers.Main.immediate) {
-                    if (generation != connectionGeneration || classicSocket !== socket) {
-                        safeCloseSocket(socket)
-                        return@withContext
-                    }
-                    startClassicIo(socket, device.address, generation)
-                }
-            } catch (error: CancellationException) {
-                safeCloseSocket(socket)
-                throw error
-            } catch (error: SecurityException) {
-                safeCloseSocket(socket)
-                withContext(Dispatchers.Main.immediate) {
-                    if (generation == connectionGeneration) {
-                        failConnection(
-                            generation,
-                            TransportError(
-                                TransportErrorKind.SECURITY_ERROR,
-                                error.message ?: "Classic connection permission denied"
-                            )
-                        )
-                    }
-                }
-            } catch (error: IOException) {
-                safeCloseSocket(socket)
-                withContext(Dispatchers.Main.immediate) {
-                    if (generation == connectionGeneration) {
-                        failConnection(
-                            generation,
-                            TransportError(
-                                TransportErrorKind.CONNECTION_FAILED,
-                                error.message ?: "Classic connection failed"
-                            )
-                        )
-                    }
-                }
-            }
-        }
-    }
-
-    private fun startClassicIo(socket: BluetoothSocket, address: String, generation: Long) {
-        val channel = Channel<PendingSend>(MAX_PENDING_SENDS)
-        classicSendChannel = channel
-        classicDecoder = Utf8StreamDecoder()
-        connectionTimeoutJob?.cancel()
-        connectionTimeoutJob = null
-        connectionState = ConnectionUiState(
-            ConnectionPhase.CONNECTED,
-            address,
-            ConnectionType.CLASSIC
-        )
-        markConnected(address, true)
-
-        classicWriterJob = viewModelScope.launch(Dispatchers.IO) {
-            try {
-                for (pending in channel) {
-                    withContext(Dispatchers.Main.immediate) {
-                        startClassicSendTimeout(socket, generation)
-                    }
-                    socket.outputStream.write(pending.payload)
-                    socket.outputStream.flush()
-                    withContext(Dispatchers.Main.immediate) {
-                        if (classicSendTimedOut) {
-                            failConnection(
-                                generation,
-                                TransportError(TransportErrorKind.WRITE_TIMEOUT, "Classic write timed out")
-                            )
-                            return@withContext
-                        }
-                        cancelClassicSendTimeout()
-                        if (generation == connectionGeneration && pendingSends.containsKey(pending.requestId)) {
-                            LogData.appendLog(
-                                LogDirection.SENT,
-                                pending.text,
-                                ConnectionType.CLASSIC,
-                                address
-                            )
-                            completeSend(pending, SendResult.Sent(pending.requestId))
-                        }
-                    }
-                }
-            } catch (error: CancellationException) {
-                throw error
-            } catch (error: SecurityException) {
-                withContext(Dispatchers.Main.immediate) {
-                    cancelClassicSendTimeout()
-                    if (generation == connectionGeneration) {
-                        failConnection(
-                            generation,
-                            TransportError(
-                                TransportErrorKind.SECURITY_ERROR,
-                                error.message ?: "Classic write permission denied"
-                            )
-                        )
-                    }
-                }
-            } catch (error: IOException) {
-                withContext(Dispatchers.Main.immediate) {
-                    val timedOut = classicSendTimedOut
-                    cancelClassicSendTimeout()
-                    if (generation == connectionGeneration) {
-                        failConnection(
-                            generation,
-                            TransportError(
-                                if (timedOut) TransportErrorKind.WRITE_TIMEOUT else TransportErrorKind.WRITE_FAILED,
-                                error.message ?: if (timedOut) "Classic write timed out" else "Classic write failed"
-                            )
-                        )
-                    }
-                }
-            }
-        }
-
-        classicReaderJob = viewModelScope.launch(Dispatchers.IO) {
-            val buffer = ByteArray(CLASSIC_READ_BUFFER_SIZE)
-            try {
-                while (true) {
-                    val count = socket.inputStream.read(buffer)
-                    if (count < 0) {
-                        withContext(Dispatchers.Main.immediate) {
-                            if (generation == connectionGeneration) {
-                                failConnection(
-                                    generation,
-                                    TransportError(
-                                        TransportErrorKind.REMOTE_DISCONNECTED,
-                                        "Classic device closed the connection"
-                                    )
-                                )
-                            }
-                        }
-                        return@launch
-                    }
-                    if (count == 0) continue
-                    val copy = buffer.copyOf(count)
-                    withContext(Dispatchers.Main.immediate) {
-                        if (generation == connectionGeneration) {
-                            val text = classicDecoder?.decode(copy).orEmpty()
-                            if (text.isNotEmpty()) {
-                                LogData.appendLog(LogDirection.RECEIVED, text, ConnectionType.CLASSIC, address)
-                            }
-                        }
-                    }
-                }
-            } catch (error: CancellationException) {
-                throw error
-            } catch (error: SecurityException) {
-                withContext(Dispatchers.Main.immediate) {
-                    if (generation == connectionGeneration) {
-                        failConnection(
-                            generation,
-                            TransportError(
-                                TransportErrorKind.SECURITY_ERROR,
-                                error.message ?: "Classic read permission denied"
-                            )
-                        )
-                    }
-                }
-            } catch (error: IOException) {
-                withContext(Dispatchers.Main.immediate) {
-                    val timedOut = classicSendTimedOut
-                    if (generation == connectionGeneration) {
-                        failConnection(
-                            generation,
-                            TransportError(
-                                if (timedOut) TransportErrorKind.WRITE_TIMEOUT else TransportErrorKind.IO_ERROR,
-                                error.message ?: if (timedOut) "Classic write timed out" else "Classic read failed"
-                            )
-                        )
-                    }
-                }
-            }
-        }
+        classicManager.connect(device, generation, transportConfig.sppUuid)
     }
 
     private fun beginConnection(address: String, type: ConnectionType): Long {
@@ -782,7 +558,7 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
         val address = connectionState.address
         val type = connectionState.type
         val bleTail = if (type == ConnectionType.BLE) bleManager.takeTail() else ""
-        val classicTail = if (type == ConnectionType.CLASSIC) classicDecoder?.finish().orEmpty() else ""
+        val classicTail = if (type == ConnectionType.CLASSIC) classicManager.takeTail() else ""
         if (address != null) {
             if (bleTail.isNotEmpty()) LogData.appendLog(LogDirection.RECEIVED, bleTail, ConnectionType.BLE, address)
             if (classicTail.isNotEmpty()) {
@@ -812,44 +588,11 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
         connectionState = ConnectionUiState(ConnectionPhase.ERROR, address, type, error)
     }
 
-    private fun startClassicSendTimeout(socket: BluetoothSocket, generation: Long) {
-        cancelClassicSendTimeout()
-        classicSendTimedOut = false
-        classicSendTimeoutJob = viewModelScope.launch(Dispatchers.Main.immediate) {
-            delay(CLASSIC_SEND_TIMEOUT_MS)
-            if (generation == connectionGeneration && classicSocket === socket) {
-                classicSendTimedOut = true
-                classicSendTimeoutJob = null
-                classicSocket = null
-                safeCloseSocket(socket)
-            }
-        }
-    }
-
-    private fun cancelClassicSendTimeout() {
-        classicSendTimeoutJob?.cancel()
-        classicSendTimeoutJob = null
-    }
-
     private fun closeTransportResources(disconnectGatt: Boolean) {
         connectionTimeoutJob?.cancel()
         connectionTimeoutJob = null
         bleManager.close(disconnectGatt)
-
-        classicSendChannel?.close()
-        classicSendChannel = null
-        classicConnectJob?.cancel()
-        classicConnectJob = null
-        classicWriterJob?.cancel()
-        classicWriterJob = null
-        classicReaderJob?.cancel()
-        classicReaderJob = null
-        cancelClassicSendTimeout()
-        classicSendTimedOut = false
-        val socket = classicSocket
-        classicSocket = null
-        safeCloseSocket(socket)
-        classicDecoder = null
+        classicManager.close()
 
         pendingBondAddress = null
         pendingBondGeneration = 0L
@@ -954,7 +697,7 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun hasActiveConnection(): Boolean =
         connectionState.phase !in setOf(ConnectionPhase.DISCONNECTED, ConnectionPhase.ERROR) ||
-            bleManager.hasGatt() || classicSocket != null || pendingBondAddress != null
+            bleManager.hasGatt() || classicManager.hasSocket() || pendingBondAddress != null
 
     private fun setIdleError(kind: TransportErrorKind, message: String) {
         if (!hasActiveConnection()) {
@@ -1040,14 +783,6 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
         bondReceiverRegistered = false
     }
 
-    private fun safeCloseSocket(socket: BluetoothSocket?) {
-        try {
-            socket?.close()
-        } catch (_: IOException) {
-            // The resource is already unusable.
-        }
-    }
-
     private fun loadTransportConfig(): TransportConfig = TransportConfig(
         bleServiceUuid = parseUuid(preferences.getString(KEY_BLE_SERVICE_UUID, null))
             ?: DEFAULT_BLE_SERVICE_UUID,
@@ -1089,8 +824,6 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
         const val DEFAULT_RSSI = -80
         const val SCAN_TIMEOUT_MS = 15_000L
         const val CONNECTION_TIMEOUT_MS = 15_000L
-        const val CLASSIC_SEND_TIMEOUT_MS = 5_000L
-        const val CLASSIC_READ_BUFFER_SIZE = 1024
         const val MAX_COMMAND_PAYLOAD_BYTES = 4096
         const val MAX_PENDING_SENDS = 32
         const val MAX_DISCOVERED_DEVICES = 100
