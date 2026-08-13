@@ -13,7 +13,6 @@ import android.os.Build
 import com.rD227.bToothFstm.data.ConnectionPhase
 import com.rD227.bToothFstm.data.ConnectionType
 import com.rD227.bToothFstm.data.ConnectionUiState
-import com.rD227.bToothFstm.data.LogData
 import com.rD227.bToothFstm.data.LogDirection
 import com.rD227.bToothFstm.data.PendingSend
 import com.rD227.bToothFstm.data.SendResult
@@ -44,6 +43,7 @@ class BleConnectionManager(
     private val onState: (ConnectionUiState) -> Unit,
     private val onConnected: (String) -> Unit,
     private val onSendComplete: (PendingSend, SendResult) -> Unit,
+    private val onLog: (LogDirection, String, ConnectionType, String) -> Unit,
     private val onFailed: (Long, TransportError) -> Unit,
 ) {
     @Volatile
@@ -430,7 +430,7 @@ class BleConnectionManager(
             if (characteristic.uuid != bleCharacteristic?.uuid) return@launch
             val text = bleDecoder?.decode(value).orEmpty()
             if (text.isNotEmpty()) {
-                LogData.appendLog(LogDirection.RECEIVED, text, ConnectionType.BLE, gatt.device.address)
+                onLog(LogDirection.RECEIVED, text, ConnectionType.BLE, gatt.device.address)
             }
         }
     }
@@ -567,7 +567,7 @@ class BleConnectionManager(
     private fun finishActiveBleSend(generation: Long) {
         val active = activeBleSend ?: return
         activeBleSend = null
-        LogData.appendLog(
+        onLog(
             LogDirection.SENT,
             active.pending.text,
             active.pending.type,

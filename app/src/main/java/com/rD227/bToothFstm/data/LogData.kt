@@ -5,6 +5,8 @@ import java.util.concurrent.atomic.AtomicLong
 
 enum class LogFilter { ALL, SENT, RECEIVED }
 
+
+//It is a global object for trans LogData between the CommandScreen and the LogScreen.
 object LogData {
     private const val MAX_LOG_ENTRIES = 500
 

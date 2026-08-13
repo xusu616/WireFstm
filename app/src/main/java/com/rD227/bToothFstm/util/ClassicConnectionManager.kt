@@ -7,7 +7,6 @@ import android.bluetooth.BluetoothSocket
 import com.rD227.bToothFstm.data.ConnectionPhase
 import com.rD227.bToothFstm.data.ConnectionType
 import com.rD227.bToothFstm.data.ConnectionUiState
-import com.rD227.bToothFstm.data.LogData
 import com.rD227.bToothFstm.data.LogDirection
 import com.rD227.bToothFstm.data.PendingSend
 import com.rD227.bToothFstm.data.SendFailureReason
@@ -38,6 +37,7 @@ class ClassicConnectionManager(
     private val onState: (ConnectionUiState) -> Unit,
     private val onConnected: (String) -> Unit,
     private val onSendComplete: (PendingSend, SendResult) -> Unit,
+    private val onLog: (LogDirection, String, ConnectionType, String) -> Unit,
     private val isPending: (Long) -> Boolean,
     private val onFailed: (Long, TransportError) -> Unit,
 ) {
@@ -199,12 +199,7 @@ class ClassicConnectionManager(
                         }
                         cancelSendTimeout()
                         if (generation == activeGeneration && isPending(pending.requestId)) {
-                            LogData.appendLog(
-                                LogDirection.SENT,
-                                pending.text,
-                                ConnectionType.CLASSIC,
-                                address
-                            )
+                            onLog(LogDirection.SENT, pending.text, ConnectionType.CLASSIC, address)
                             onSendComplete(pending, SendResult.Sent(pending.requestId))
                         }
                     }
@@ -266,7 +261,7 @@ class ClassicConnectionManager(
                         if (generation == activeGeneration) {
                             val text = classicDecoder?.decode(copy).orEmpty()
                             if (text.isNotEmpty()) {
-                                LogData.appendLog(LogDirection.RECEIVED, text, ConnectionType.CLASSIC, address)
+                                onLog(LogDirection.RECEIVED, text, ConnectionType.CLASSIC, address)
                             }
                         }
                     }

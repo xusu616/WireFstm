@@ -111,6 +111,7 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
             markConnected(address, true)
         },
         onSendComplete = ::completeSend,
+        onLog = LogData::appendLog,
         onFailed = ::failConnection,
     )
 
@@ -124,6 +125,7 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
             markConnected(address, true)
         },
         onSendComplete = ::completeSend,
+        onLog = LogData::appendLog,
         isPending = { requestId -> pendingSends.containsKey(requestId) },
         onFailed = ::failConnection,
     )
