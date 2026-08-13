@@ -1,4 +1,4 @@
-package com.rD227.bToothFstm.data
+package com.rD227.bToothFstm.util
 
 import java.nio.ByteBuffer
 import java.nio.CharBuffer

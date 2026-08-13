@@ -108,7 +108,7 @@ fun RoundIconButton(iconRes: Int, rotation: Float, onClick: () -> Unit) {
         modifier = Modifier
             .size(56.dp)
             .clip(CircleShape)
-            .background(MaterialTheme.colorScheme.primaryContainer)
+            .background(MaterialTheme.colorScheme.secondaryContainer)
             .clickable {
                 onClick()
             }

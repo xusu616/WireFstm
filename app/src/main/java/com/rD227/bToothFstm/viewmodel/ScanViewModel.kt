@@ -4,14 +4,8 @@ import android.annotation.SuppressLint
 import android.app.Application
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
-import android.bluetooth.BluetoothGatt
-import android.bluetooth.BluetoothGattCallback
-import android.bluetooth.BluetoothGattCharacteristic
-import android.bluetooth.BluetoothGattDescriptor
 import android.bluetooth.BluetoothManager
-import android.bluetooth.BluetoothProfile
 import android.bluetooth.BluetoothSocket
-import android.bluetooth.BluetoothStatusCodes
 import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
@@ -32,22 +26,20 @@ import com.rD227.bToothFstm.data.ConnectionPhase
 import com.rD227.bToothFstm.data.ConnectionType
 import com.rD227.bToothFstm.data.ConnectionUiState
 import com.rD227.bToothFstm.data.LogDirection
-import com.rD227.bToothFstm.data.LogEntry
 import com.rD227.bToothFstm.data.ScanData.BleDevice
 import com.rD227.bToothFstm.data.SendFailureReason
 import com.rD227.bToothFstm.data.SendResult
 import com.rD227.bToothFstm.data.TransportConfig
 import com.rD227.bToothFstm.data.TransportError
 import com.rD227.bToothFstm.data.TransportErrorKind
-import com.rD227.bToothFstm.data.Utf8StreamDecoder
+import com.rD227.bToothFstm.util.BleConnectionManager
+import com.rD227.bToothFstm.util.Utf8StreamDecoder
 import com.rD227.bToothFstm.data.LogData
+import com.rD227.bToothFstm.data.PendingSend
 import com.rD227.bToothFstm.data.UuidField
 import com.rD227.bToothFstm.data.UuidUpdateResult
-import com.rD227.bToothFstm.data.bleChunkSize
-import com.rD227.bToothFstm.data.chunkPayload
 import com.rD227.bToothFstm.data.frameCommand
 import com.rD227.bToothFstm.data.resolveDeviceType
-import com.rD227.bToothFstm.data.selectBleWriteType
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -56,11 +48,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.IOException
-import java.nio.ByteBuffer
-import java.nio.CharBuffer
-import java.nio.charset.CodingErrorAction
-import java.nio.charset.StandardCharsets
-import java.util.ArrayDeque
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicLong
 
@@ -114,16 +101,7 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
     private var pendingBondAddress: String? = null
     private var pendingBondGeneration = 0L
 
-    private var bluetoothGatt: BluetoothGatt? = null
-    private var bleCharacteristic: BluetoothGattCharacteristic? = null
-    private var bleWriteType: Int? = null
-    private var negotiatedMtu = DEFAULT_MTU
-    private var bleDecoder: Utf8StreamDecoder? = null
     private var connectionTimeoutJob: Job? = null
-    private var setupTimeoutJob: Job? = null
-    private var bleChunkTimeoutJob: Job? = null
-    private val bleSendQueue = ArrayDeque<PendingSend>()
-    private var activeBleSend: ActiveBleSend? = null
 
     private var classicSocket: BluetoothSocket? = null
     private var classicSendChannel: Channel<PendingSend>? = null
@@ -136,6 +114,19 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
 
     private val pendingSends = linkedMapOf<Long, PendingSend>()
     private val nextSendId = AtomicLong(0L)
+
+    private val bleManager = BleConnectionManager(
+        app = app,
+        scope = viewModelScope,
+        onState = { connectionState = it },
+        onConnected = { address ->
+            connectionTimeoutJob?.cancel()
+            connectionTimeoutJob = null
+            markConnected(address, true)
+        },
+        onSendComplete = ::completeSend,
+        onFailed = ::failConnection,
+    )
 
     init {
         if (bluetoothAdapter == null) {
@@ -303,7 +294,7 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
         val generation = beginConnection(device.address, type)
 
         if (type == ConnectionType.BLE) {
-            connectGatt(remoteDevice, generation)
+            bleManager.connect(remoteDevice, generation, transportConfig)
             return
         }
 
@@ -434,10 +425,7 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
             )
             pendingSends[requestId] = pending
             when (pending.type) {
-                ConnectionType.BLE -> {
-                    bleSendQueue.addLast(pending)
-                    startNextBleSend(connectionGeneration)
-                }
+                ConnectionType.BLE -> bleManager.enqueue(pending, connectionGeneration)
                 ConnectionType.CLASSIC -> {
                     val channel = classicSendChannel
                     val queued = channel?.trySend(pending)
@@ -556,467 +544,6 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
             device.address,
             ConnectionType.CLASSIC
         )
-    }
-
-    private fun connectGatt(device: BluetoothDevice, generation: Long) {
-        connectionState = ConnectionUiState(
-            ConnectionPhase.CONNECTING,
-            device.address,
-            ConnectionType.BLE
-        )
-        val callback = createGattCallback(generation)
-        try {
-            val gatt = device.connectGatt(app, false, callback, BluetoothDevice.TRANSPORT_LE)
-            if (generation != connectionGeneration) {
-                safeCloseGatt(gatt, disconnect = true)
-            } else if (gatt == null) {
-                failConnection(
-                    generation,
-                    TransportError(TransportErrorKind.CONNECTION_FAILED, "BLE connection could not be started")
-                )
-            } else {
-                bluetoothGatt = gatt
-                bleDecoder = Utf8StreamDecoder()
-            }
-        } catch (error: SecurityException) {
-            failConnection(
-                generation,
-                TransportError(TransportErrorKind.SECURITY_ERROR, error.message ?: "BLE connection permission denied")
-            )
-        }
-    }
-
-    private fun createGattCallback(generation: Long) = object : BluetoothGattCallback() {
-        override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
-            if (generation != connectionGeneration) {
-                safeCloseGatt(gatt, disconnect = false)
-                return
-            }
-            viewModelScope.launch(Dispatchers.Main.immediate) {
-                if (!isCurrentGatt(gatt, generation)) {
-                    safeCloseGatt(gatt, disconnect = false)
-                    return@launch
-                }
-                if (newState == BluetoothProfile.STATE_DISCONNECTED) {
-                    remoteBleDisconnected(generation, status)
-                    return@launch
-                }
-                if (status != BluetoothGatt.GATT_SUCCESS) {
-                    failConnection(
-                        generation,
-                        TransportError(TransportErrorKind.GATT_ERROR, "GATT connection failed ($status)")
-                    )
-                    return@launch
-                }
-                when (newState) {
-                    BluetoothProfile.STATE_CONNECTED -> {
-                        connectionState = ConnectionUiState(
-                            ConnectionPhase.DISCOVERING_SERVICES,
-                            gatt.device.address,
-                            ConnectionType.BLE
-                        )
-                        startSetupTimeout(generation)
-                        val started = try {
-                            gatt.discoverServices()
-                        } catch (error: SecurityException) {
-                            failConnection(
-                                generation,
-                                TransportError(
-                                    TransportErrorKind.SECURITY_ERROR,
-                                    error.message ?: "Service discovery permission denied"
-                                )
-                            )
-                            return@launch
-                        }
-                        if (!started) {
-                            failConnection(
-                                generation,
-                                TransportError(
-                                    TransportErrorKind.GATT_ERROR,
-                                    "GATT service discovery could not start"
-                                )
-                            )
-                        }
-                    }
-                }
-            }
-        }
-
-        override fun onServicesDiscovered(gatt: BluetoothGatt, status: Int) {
-            viewModelScope.launch(Dispatchers.Main.immediate) {
-                if (!isCurrentGatt(gatt, generation)) {
-                    safeCloseGatt(gatt, disconnect = false)
-                    return@launch
-                }
-                if (status != BluetoothGatt.GATT_SUCCESS) {
-                    failConnection(
-                        generation,
-                        TransportError(TransportErrorKind.GATT_ERROR, "Service discovery failed ($status)")
-                    )
-                    return@launch
-                }
-                val service = gatt.getService(transportConfig.bleServiceUuid)
-                if (service == null) {
-                    failConnection(
-                        generation,
-                        TransportError(
-                            TransportErrorKind.SERVICE_NOT_FOUND,
-                            "BLE service ${transportConfig.bleServiceUuid} was not found"
-                        )
-                    )
-                    return@launch
-                }
-                val characteristic = service.getCharacteristic(transportConfig.bleCharacteristicUuid)
-                if (characteristic == null) {
-                    failConnection(
-                        generation,
-                        TransportError(
-                            TransportErrorKind.CHARACTERISTIC_NOT_FOUND,
-                            "BLE characteristic ${transportConfig.bleCharacteristicUuid} was not found"
-                        )
-                    )
-                    return@launch
-                }
-                val writeType = selectBleWriteType(characteristic.properties)
-                val canNotify = characteristic.properties and BluetoothGattCharacteristic.PROPERTY_NOTIFY != 0
-                val canIndicate = characteristic.properties and BluetoothGattCharacteristic.PROPERTY_INDICATE != 0
-                if (writeType == null || (!canNotify && !canIndicate)) {
-                    failConnection(
-                        generation,
-                        TransportError(
-                            TransportErrorKind.CHARACTERISTIC_NOT_SUPPORTED,
-                            "Characteristic must support write and notify or indicate"
-                        )
-                    )
-                    return@launch
-                }
-                if (characteristic.getDescriptor(CCCD_UUID) == null) {
-                    failConnection(
-                        generation,
-                        TransportError(
-                            TransportErrorKind.NOTIFICATION_SETUP_FAILED,
-                            "Characteristic is missing the standard CCCD"
-                        )
-                    )
-                    return@launch
-                }
-                bleCharacteristic = characteristic
-                bleWriteType = writeType
-                negotiatedMtu = DEFAULT_MTU
-                val mtuStarted = try {
-                    gatt.requestMtu(REQUESTED_MTU)
-                } catch (error: SecurityException) {
-                    failConnection(
-                        generation,
-                        TransportError(
-                            TransportErrorKind.SECURITY_ERROR,
-                            error.message ?: "MTU request permission denied"
-                        )
-                    )
-                    return@launch
-                }
-                if (!mtuStarted) enableBleNotifications(gatt, characteristic, generation)
-            }
-        }
-
-        override fun onMtuChanged(gatt: BluetoothGatt, mtu: Int, status: Int) {
-            viewModelScope.launch(Dispatchers.Main.immediate) {
-                if (!isCurrentGatt(gatt, generation)) {
-                    safeCloseGatt(gatt, disconnect = false)
-                    return@launch
-                }
-                negotiatedMtu = if (status == BluetoothGatt.GATT_SUCCESS) {
-                    maxOf(DEFAULT_MTU, mtu)
-                } else {
-                    DEFAULT_MTU
-                }
-                val characteristic = bleCharacteristic ?: return@launch
-                enableBleNotifications(gatt, characteristic, generation)
-            }
-        }
-
-        override fun onDescriptorWrite(gatt: BluetoothGatt, descriptor: BluetoothGattDescriptor, status: Int) {
-            viewModelScope.launch(Dispatchers.Main.immediate) {
-                if (!isCurrentGatt(gatt, generation)) {
-                    safeCloseGatt(gatt, disconnect = false)
-                    return@launch
-                }
-                val characteristic = bleCharacteristic
-                if (
-                    descriptor.uuid != CCCD_UUID ||
-                    characteristic == null ||
-                    descriptor.characteristic.uuid != characteristic.uuid
-                ) return@launch
-                if (status != BluetoothGatt.GATT_SUCCESS) {
-                    failConnection(
-                        generation,
-                        TransportError(
-                            TransportErrorKind.NOTIFICATION_SETUP_FAILED,
-                            "CCCD write failed ($status)"
-                        )
-                    )
-                    return@launch
-                }
-                setupTimeoutJob?.cancel()
-                setupTimeoutJob = null
-                connectionTimeoutJob?.cancel()
-                connectionTimeoutJob = null
-                connectionState = ConnectionUiState(
-                    ConnectionPhase.CONNECTED,
-                    gatt.device.address,
-                    ConnectionType.BLE
-                )
-                markConnected(gatt.device.address, true)
-            }
-        }
-
-        override fun onCharacteristicWrite(
-            gatt: BluetoothGatt,
-            characteristic: BluetoothGattCharacteristic,
-            status: Int
-        ) {
-            viewModelScope.launch(Dispatchers.Main.immediate) {
-                handleBleChunkWritten(gatt, characteristic, status, generation)
-            }
-        }
-
-        @Suppress("DEPRECATION")
-        override fun onCharacteristicChanged(
-            gatt: BluetoothGatt,
-            characteristic: BluetoothGattCharacteristic
-        ) {
-            val value = characteristic.value?.copyOf() ?: return
-            receiveBleBytes(gatt, characteristic, value, generation)
-        }
-
-        override fun onCharacteristicChanged(
-            gatt: BluetoothGatt,
-            characteristic: BluetoothGattCharacteristic,
-            value: ByteArray
-        ) {
-            receiveBleBytes(gatt, characteristic, value.copyOf(), generation)
-        }
-    }
-
-    private fun enableBleNotifications(
-        gatt: BluetoothGatt,
-        characteristic: BluetoothGattCharacteristic,
-        generation: Long
-    ) {
-        if (!isCurrentGatt(gatt, generation)) return
-        connectionState = ConnectionUiState(
-            ConnectionPhase.ENABLING_NOTIFICATIONS,
-            gatt.device.address,
-            ConnectionType.BLE
-        )
-        val cccd = characteristic.getDescriptor(CCCD_UUID)
-        if (cccd == null) {
-            failConnection(
-                generation,
-                TransportError(TransportErrorKind.NOTIFICATION_SETUP_FAILED, "CCCD is unavailable")
-            )
-            return
-        }
-        val enableValue = if (
-            characteristic.properties and BluetoothGattCharacteristic.PROPERTY_NOTIFY != 0
-        ) {
-            BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
-        } else {
-            BluetoothGattDescriptor.ENABLE_INDICATION_VALUE
-        }
-        try {
-            if (!gatt.setCharacteristicNotification(characteristic, true)) {
-                failConnection(
-                    generation,
-                    TransportError(
-                        TransportErrorKind.NOTIFICATION_SETUP_FAILED,
-                        "Local notification registration failed"
-                    )
-                )
-                return
-            }
-            val started = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                gatt.writeDescriptor(cccd, enableValue) == BluetoothStatusCodes.SUCCESS
-            } else {
-                @Suppress("DEPRECATION")
-                cccd.value = enableValue
-                @Suppress("DEPRECATION")
-                gatt.writeDescriptor(cccd)
-            }
-            if (!started) {
-                failConnection(
-                    generation,
-                    TransportError(
-                        TransportErrorKind.NOTIFICATION_SETUP_FAILED,
-                        "CCCD write could not start"
-                    )
-                )
-            }
-        } catch (error: SecurityException) {
-            failConnection(
-                generation,
-                TransportError(
-                    TransportErrorKind.SECURITY_ERROR,
-                    error.message ?: "Notification setup permission denied"
-                )
-            )
-        }
-    }
-
-    private fun receiveBleBytes(
-        gatt: BluetoothGatt,
-        characteristic: BluetoothGattCharacteristic,
-        value: ByteArray,
-        generation: Long
-    ) {
-        viewModelScope.launch(Dispatchers.Main.immediate) {
-            if (!isCurrentGatt(gatt, generation)) {
-                safeCloseGatt(gatt, disconnect = false)
-                return@launch
-            }
-            if (characteristic.uuid != bleCharacteristic?.uuid) return@launch
-            val text = bleDecoder?.decode(value).orEmpty()
-            if (text.isNotEmpty()) {
-                LogData.appendLog(LogDirection.RECEIVED, text, ConnectionType.BLE, gatt.device.address)
-            }
-        }
-    }
-
-    private fun startSetupTimeout(generation: Long) {
-        setupTimeoutJob?.cancel()
-        setupTimeoutJob = viewModelScope.launch(Dispatchers.Main.immediate) {
-            delay(SETUP_TIMEOUT_MS)
-            if (generation == connectionGeneration && connectionState.phase != ConnectionPhase.CONNECTED) {
-                failConnection(
-                    generation,
-                    TransportError(TransportErrorKind.SETUP_TIMEOUT, "BLE setup timed out")
-                )
-            }
-        }
-    }
-
-    private fun startNextBleSend(generation: Long) {
-        if (generation != connectionGeneration || activeBleSend != null) return
-        val next = bleSendQueue.pollFirst() ?: return
-        val active = ActiveBleSend(
-            pending = next,
-            chunks = chunkPayload(next.payload, bleChunkSize(negotiatedMtu))
-        )
-        activeBleSend = active
-        writeActiveBleChunk(generation)
-    }
-
-    private fun writeActiveBleChunk(generation: Long) {
-        val active = activeBleSend ?: return
-        val gatt = bluetoothGatt
-        val characteristic = bleCharacteristic
-        val writeType = bleWriteType
-        if (
-            generation != connectionGeneration ||
-            gatt == null ||
-            characteristic == null ||
-            writeType == null ||
-            connectionState.phase != ConnectionPhase.CONNECTED
-        ) {
-            failBleTransport(
-                generation,
-                TransportError(TransportErrorKind.WRITE_FAILED, "BLE transport is not writable")
-            )
-            return
-        }
-        val chunk = active.chunks.getOrNull(active.chunkIndex)
-        if (chunk == null) {
-            finishActiveBleSend(generation)
-            return
-        }
-        val started = try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                gatt.writeCharacteristic(characteristic, chunk, writeType) == BluetoothStatusCodes.SUCCESS
-            } else {
-                @Suppress("DEPRECATION")
-                characteristic.writeType = writeType
-                @Suppress("DEPRECATION")
-                characteristic.value = chunk
-                @Suppress("DEPRECATION")
-                gatt.writeCharacteristic(characteristic)
-            }
-        } catch (error: SecurityException) {
-            failBleTransport(
-                generation,
-                TransportError(TransportErrorKind.SECURITY_ERROR, error.message ?: "BLE write permission denied")
-            )
-            return
-        } catch (error: IllegalArgumentException) {
-            failBleTransport(
-                generation,
-                TransportError(TransportErrorKind.WRITE_FAILED, error.message ?: "BLE write was rejected")
-            )
-            return
-        }
-        if (!started) {
-            failBleTransport(
-                generation,
-                TransportError(TransportErrorKind.WRITE_FAILED, "BLE write could not start")
-            )
-            return
-        }
-        bleChunkTimeoutJob?.cancel()
-        bleChunkTimeoutJob = viewModelScope.launch(Dispatchers.Main.immediate) {
-            delay(BLE_CHUNK_TIMEOUT_MS)
-            if (generation == connectionGeneration && activeBleSend === active) {
-                failBleTransport(
-                    generation,
-                    TransportError(TransportErrorKind.WRITE_TIMEOUT, "BLE write timed out")
-                )
-            }
-        }
-    }
-
-    private fun handleBleChunkWritten(
-        gatt: BluetoothGatt,
-        characteristic: BluetoothGattCharacteristic,
-        status: Int,
-        generation: Long
-    ) {
-        if (!isCurrentGatt(gatt, generation)) {
-            safeCloseGatt(gatt, disconnect = false)
-            return
-        }
-        if (characteristic.uuid != bleCharacteristic?.uuid || activeBleSend == null) return
-        bleChunkTimeoutJob?.cancel()
-        bleChunkTimeoutJob = null
-        if (status != BluetoothGatt.GATT_SUCCESS) {
-            failBleTransport(
-                generation,
-                TransportError(TransportErrorKind.WRITE_FAILED, "BLE write failed ($status)")
-            )
-            return
-        }
-        val active = activeBleSend ?: return
-        active.chunkIndex++
-        if (active.chunkIndex >= active.chunks.size) {
-            finishActiveBleSend(generation)
-        } else {
-            writeActiveBleChunk(generation)
-        }
-    }
-
-    private fun finishActiveBleSend(generation: Long) {
-        val active = activeBleSend ?: return
-        activeBleSend = null
-        LogData.appendLog(
-            LogDirection.SENT,
-            active.pending.text,
-            active.pending.type,
-            active.pending.address
-        )
-        completeSend(active.pending, SendResult.Sent(active.pending.requestId))
-        startNextBleSend(generation)
-    }
-
-    private fun failBleTransport(generation: Long, error: TransportError) {
-        if (generation != connectionGeneration) return
-        failConnection(generation, error)
     }
 
     private fun connectClassic(device: BluetoothDevice, generation: Long) {
@@ -1254,7 +781,7 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
         if (generation != connectionGeneration) return
         val address = connectionState.address
         val type = connectionState.type
-        val bleTail = if (type == ConnectionType.BLE) bleDecoder?.finish().orEmpty() else ""
+        val bleTail = if (type == ConnectionType.BLE) bleManager.takeTail() else ""
         val classicTail = if (type == ConnectionType.CLASSIC) classicDecoder?.finish().orEmpty() else ""
         if (address != null) {
             if (bleTail.isNotEmpty()) LogData.appendLog(LogDirection.RECEIVED, bleTail, ConnectionType.BLE, address)
@@ -1285,19 +812,6 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
         connectionState = ConnectionUiState(ConnectionPhase.ERROR, address, type, error)
     }
 
-    private fun remoteBleDisconnected(generation: Long, status: Int) {
-        if (generation != connectionGeneration) return
-        val message = if (status == BluetoothGatt.GATT_SUCCESS) {
-            "BLE device disconnected"
-        } else {
-            "BLE device disconnected (GATT status $status)"
-        }
-        failConnection(
-            generation,
-            TransportError(TransportErrorKind.REMOTE_DISCONNECTED, message)
-        )
-    }
-
     private fun startClassicSendTimeout(socket: BluetoothSocket, generation: Long) {
         cancelClassicSendTimeout()
         classicSendTimedOut = false
@@ -1320,20 +834,7 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
     private fun closeTransportResources(disconnectGatt: Boolean) {
         connectionTimeoutJob?.cancel()
         connectionTimeoutJob = null
-        setupTimeoutJob?.cancel()
-        setupTimeoutJob = null
-        bleChunkTimeoutJob?.cancel()
-        bleChunkTimeoutJob = null
-
-        val gatt = bluetoothGatt
-        bluetoothGatt = null
-        bleCharacteristic = null
-        bleWriteType = null
-        negotiatedMtu = DEFAULT_MTU
-        bleDecoder = null
-        activeBleSend = null
-        bleSendQueue.clear()
-        safeCloseGatt(gatt, disconnectGatt)
+        bleManager.close(disconnectGatt)
 
         classicSendChannel?.close()
         classicSendChannel = null
@@ -1453,10 +954,7 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun hasActiveConnection(): Boolean =
         connectionState.phase !in setOf(ConnectionPhase.DISCONNECTED, ConnectionPhase.ERROR) ||
-            bluetoothGatt != null || classicSocket != null || pendingBondAddress != null
-
-    private fun isCurrentGatt(gatt: BluetoothGatt, generation: Long): Boolean =
-        generation == connectionGeneration && bluetoothGatt === gatt
+            bleManager.hasGatt() || classicSocket != null || pendingBondAddress != null
 
     private fun setIdleError(kind: TransportErrorKind, message: String) {
         if (!hasActiveConnection()) {
@@ -1542,17 +1040,6 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
         bondReceiverRegistered = false
     }
 
-    private fun safeCloseGatt(gatt: BluetoothGatt?, disconnect: Boolean) {
-        if (gatt == null) return
-        try {
-            if (disconnect) gatt.disconnect()
-        } catch (_: SecurityException) {
-            // Closing still releases the local GATT resource.
-        } finally {
-            gatt.close()
-        }
-    }
-
     private fun safeCloseSocket(socket: BluetoothSocket?) {
         try {
             socket?.close()
@@ -1593,23 +1080,6 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
         super.onCleared()
     }
 
-    private data class PendingSend(
-        val requestId: Long,
-        val text: String,
-        val payload: ByteArray,
-        val type: ConnectionType,
-        val address: String,
-        val onComplete: (SendResult) -> Unit
-    )
-
-    private data class ActiveBleSend(
-        val pending: PendingSend,
-        val chunks: List<ByteArray>,
-        var chunkIndex: Int = 0
-    )
-
-
-
     private companion object {
         const val PREFERENCES_NAME = "transport_config"
         const val KEY_BLE_SERVICE_UUID = "ble_service_uuid"
@@ -1617,12 +1087,8 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
         const val KEY_SPP_UUID = "spp_uuid"
         const val UNKNOWN_DEVICE_NAME = "未知设备"
         const val DEFAULT_RSSI = -80
-        const val DEFAULT_MTU = 23
-        const val REQUESTED_MTU = 517
         const val SCAN_TIMEOUT_MS = 15_000L
         const val CONNECTION_TIMEOUT_MS = 15_000L
-        const val SETUP_TIMEOUT_MS = 10_000L
-        const val BLE_CHUNK_TIMEOUT_MS = 5_000L
         const val CLASSIC_SEND_TIMEOUT_MS = 5_000L
         const val CLASSIC_READ_BUFFER_SIZE = 1024
         const val MAX_COMMAND_PAYLOAD_BYTES = 4096
@@ -1637,6 +1103,5 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
             UUID.fromString("0000FFE1-0000-1000-8000-00805F9B34FB")
         val DEFAULT_SPP_UUID: UUID =
             UUID.fromString("00001101-0000-1000-8000-00805F9B34FB")
-        val CCCD_UUID: UUID = UUID.fromString("00002902-0000-1000-8000-00805F9B34FB")
     }
 }

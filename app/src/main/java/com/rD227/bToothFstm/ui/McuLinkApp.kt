@@ -207,6 +207,7 @@ fun McuLinkApp() {
             )
             AppScreen.Log.route -> LogScreen(
                 modifier = screenModifier
+                //use odd object now
             )
         }
     }

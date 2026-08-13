@@ -96,6 +96,15 @@ sealed class SendResult {
     ) : SendResult()
 }
 
+data class PendingSend(
+    val requestId: Long,
+    val text: String,
+    val payload: ByteArray,
+    val type: ConnectionType,
+    val address: String,
+    val onComplete: (SendResult) -> Unit
+)
+
 fun frameCommand(text: String): ByteArray =
     (text.trimEnd('\r', '\n') + "\r\n").toByteArray(Charsets.UTF_8)
 
