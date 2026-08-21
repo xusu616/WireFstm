@@ -26,6 +26,8 @@
     <string name="quick_commands">快捷指令</string>
     <string name="custom_command">自定义指令</string>
     <string name="command_hint">输入指令…</string>
+    <string name="auto_checksum">自动校验和</string>
+    <string name="auto_checksum_desc">发送时自动在数据末尾追加低 8 位累加校验和</string>
     <string name="send">发送</string>
     <string name="cmd_led_on">LED 开</string>
     <string name="cmd_led_off">LED 关</string>

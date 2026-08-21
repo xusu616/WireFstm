@@ -105,8 +105,45 @@ data class PendingSend(
     val onComplete: (SendResult) -> Unit
 )
 
-fun frameCommand(text: String): ByteArray =
-    (text.trimEnd('\r', '\n') + "\r\n").toByteArray(Charsets.UTF_8)
+fun frameCommand(text: String, addChecksum: Boolean = false): ByteArray {
+    val trimmed = text.trimEnd('\r', '\n')
+    val data = if (addChecksum) {
+        parseHexBytes(trimmed) ?: trimmed.toByteArray(Charsets.UTF_8)
+    } else {
+        trimmed.toByteArray(Charsets.UTF_8)
+    }
+    return if (addChecksum) appendChecksum(data) else data + "\r\n".toByteArray(Charsets.UTF_8)
+}
+
+/** Parses a hex string such as "12 AB 45" or "0x12 0xAB 0x45" into bytes, or null if not valid hex. */
+fun parseHexBytes(text: String): ByteArray? {
+    val cleaned = text.trim()
+        .replace("0x", "")
+        .replace("0X", "")
+        .replace(" ", "")
+        .replace("\t", "")
+        .replace(",", "")
+        .replace(":", "")
+        .replace("-", "")
+    if (cleaned.isEmpty() || cleaned.length % 2 != 0) return null
+    return try {
+        ByteArray(cleaned.length / 2) { index ->
+            cleaned.substring(index * 2, index * 2 + 2).toInt(16).toByte()
+        }
+    } catch (_: NumberFormatException) {
+        null
+    }
+}
+
+/** Returns the low 8 bits of the sum of all bytes in [data]. */
+fun checksum(data: ByteArray): Byte =
+    (data.fold(0) { acc, byte -> (acc + (byte.toInt() and 0xFF)) and 0xFF }).toByte()
+
+/** Returns [data] followed by its modulo-256 sum checksum byte. */
+fun appendChecksum(data: ByteArray): ByteArray = data + checksum(data)
+
+/** Alias for [appendChecksum]. */
+fun addChecksum(data: ByteArray): ByteArray = appendChecksum(data)
 
 fun bleChunkSize(negotiatedMtu: Int): Int =
     minOf(maxOf(1, negotiatedMtu - 3), 512)

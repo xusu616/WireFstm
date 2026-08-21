@@ -15,7 +15,9 @@ data class CommandScreenUiState(
     val bleServiceUuid: String,
     val bleCharUuid: String,
     val sppUuid: String,
-    val quickCommands: List<QuickCommand>
+    val quickCommands: List<QuickCommand>,
+    val checksumEnabled: Boolean = false,
+    val autoChecksum: Boolean = checksumEnabled
 )
 
 data class CommandScreenActions(
@@ -28,6 +30,8 @@ data class CommandScreenActions(
     val onUuidChange: (String, String, String) -> UuidUpdateResult,
     val onAddCommand: (QuickCommand) -> Unit,
     val onUpdateCommand: (Int, QuickCommand) -> Unit,
-    val onDeleteCommand: (Int) -> Unit
+    val onDeleteCommand: (Int) -> Unit,
+    val onChecksumChange: (Boolean) -> Unit = {},
+    val onAutoChecksumChange: (Boolean) -> Unit = onChecksumChange
 )
 

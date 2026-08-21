@@ -64,6 +64,8 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -133,11 +135,13 @@ fun CommandScreen(
             ?: scanViewModel.pairedDevices.firstOrNull { it.address == address }
     }
     var customInput by rememberSaveable { mutableStateOf("") }
+    var autoChecksum by rememberSaveable { mutableStateOf(false) }
     var pendingCustomRequestId by rememberSaveable { mutableStateOf<Long?>(null) }
     var pendingCustomText by rememberSaveable { mutableStateOf<String?>(null) }
     val snackbarHostState = remember { SnackbarHostState() }
     val sendResult = scanViewModel.lastSendResult
     val failureMessage = sendResultMessage(sendResult)
+    val onChecksumChange: (Boolean) -> Unit = { autoChecksum = it }
 
     LaunchedEffect(sendResult?.requestId) {
         val result = sendResult ?: return@LaunchedEffect
@@ -168,13 +172,15 @@ fun CommandScreen(
             bleServiceUuid = scanViewModel.transportConfig.bleServiceUuid.toString(),
             bleCharUuid = scanViewModel.transportConfig.bleCharacteristicUuid.toString(),
             sppUuid = scanViewModel.transportConfig.sppUuid.toString(),
-            quickCommands = commandViewModel.quickCommands
+            quickCommands = commandViewModel.quickCommands,
+            checksumEnabled = autoChecksum,
+            autoChecksum = autoChecksum
         ),
         actions = CommandScreenActions(
             onCustomInputChange = { customInput = it },
-            onQuickSend = { scanViewModel.sendCommand(it) },
+            onQuickSend = { scanViewModel.sendCommand(it, autoChecksum) },
             onCustomSend = { submittedText ->
-                val requestId = scanViewModel.sendCommand(submittedText)
+                val requestId = scanViewModel.sendCommand(submittedText, autoChecksum)
                 pendingCustomRequestId = requestId
                 pendingCustomText = submittedText
             },
@@ -184,7 +190,9 @@ fun CommandScreen(
             onUuidChange = scanViewModel::updateTransportConfig,
             onAddCommand = commandViewModel::addQuickCommand,
             onUpdateCommand = commandViewModel::updateQuickCommand,
-            onDeleteCommand = commandViewModel::deleteQuickCommand
+            onDeleteCommand = commandViewModel::deleteQuickCommand,
+            onChecksumChange = onChecksumChange,
+            onAutoChecksumChange = onChecksumChange
         ),
         modifier = modifier,
         snackbarHost = { SnackbarHost(snackbarHostState) }
@@ -263,6 +271,10 @@ fun CommandScreenContent(
                     showDeviceSheet = true
                 },
                 onDisconnect = actions.onDisconnect
+            )
+            AutoChecksumSwitch(
+                checked = state.autoChecksum || state.checksumEnabled,
+                onCheckedChange = actions.onAutoChecksumChange
             )
             QuickCommandSection(
                 commands = state.quickCommands,
@@ -471,6 +483,37 @@ private fun DeviceStatusBanner(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun AutoChecksumSwitch(
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(
+                text = stringResource(R.string.auto_checksum),
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                text = stringResource(R.string.auto_checksum_desc),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f)
+            )
+        }
+        Spacer(Modifier.width(12.dp))
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+            colors = SwitchDefaults.colors(MaterialTheme.colorScheme.primaryContainer)
+        )
     }
 }
 

@@ -15,6 +15,39 @@ class TransportDataTest {
     }
 
     @Test
+    fun appendChecksum_appendsLowEightBitsOfByteSum() {
+        assertArrayEquals(
+            byteArrayOf(0x12, 0xAB.toByte(), 0x45, 0x02),
+            appendChecksum(byteArrayOf(0x12, 0xAB.toByte(), 0x45))
+        )
+        assertArrayEquals(
+            byteArrayOf(0x01, 0x02.toByte(), 0x03),
+            appendChecksum(byteArrayOf(0x01, 0x02.toByte()))
+        )
+    }
+
+    @Test
+    fun frameCommand_withChecksum_appendsChecksumWithoutCrLf() {
+        assertArrayEquals(
+            byteArrayOf('R'.code.toByte(), 'E'.code.toByte(), 'A'.code.toByte(), 'D'.code.toByte(), 0x1C),
+            frameCommand("READ", addChecksum = true)
+        )
+        assertArrayEquals(
+            byteArrayOf(0x12, 0xAB.toByte(), 0x45, 0x02),
+            frameCommand("12 AB 45", addChecksum = true)
+        )
+    }
+
+    @Test
+    fun parseHexBytes_handlesSpacesAndPrefixes() {
+        assertArrayEquals(
+            byteArrayOf(0x12, 0xAB.toByte(), 0x45),
+            parseHexBytes("0x12 0xAB 0x45")
+        )
+        assertNull(parseHexBytes("READ"))
+    }
+
+    @Test
     fun chunkPayload_usesConfiguredPayloadSizeAndReassembles() {
         val payload = frameCommand("1234567890123456789012345678901234567890")
         val chunks = chunkPayload(payload, 20)

@@ -369,7 +369,11 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun sendCommand(text: String, onComplete: (SendResult) -> Unit = {}): Long {
+    fun sendCommand(
+        text: String,
+        addChecksum: Boolean = false,
+        onComplete: (SendResult) -> Unit = {}
+    ): Long {
         val requestId = nextSendId.incrementAndGet()
         if (text.isBlank()) {
             dispatchImmediateResult(
@@ -379,7 +383,7 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
             return requestId
         }
 
-        val payload = frameCommand(text)
+        val payload = frameCommand(text, addChecksum)
         if (payload.size > MAX_COMMAND_PAYLOAD_BYTES) {
             dispatchImmediateResult(
                 SendResult.Failed(
