@@ -91,6 +91,7 @@ fun McuLinkApp() {
     val commandViewModel: CommandViewModel = viewModel()
     var currentScreen by rememberSaveable { mutableStateOf(AppScreen.Scan.route) }
     var selectedIndex by rememberSaveable { mutableIntStateOf(0) }
+    var autoChecksum by rememberSaveable { mutableStateOf(false) }
     Scaffold(
         bottomBar = {
             BoxWithConstraints {
@@ -203,9 +204,12 @@ fun McuLinkApp() {
             AppScreen.Control.route -> CommandScreen(
                 scanViewModel = scanViewModel,
                 commandViewModel = commandViewModel,
+                autoChecksum = autoChecksum,
                 modifier = screenModifier
             )
             AppScreen.Log.route -> LogScreen(
+                autoChecksum = autoChecksum,
+                onAutoChecksumChange = { autoChecksum = it },
                 modifier = screenModifier
                 //use odd object now
             )

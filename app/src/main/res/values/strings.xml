@@ -45,6 +45,7 @@
     <string name="log_filter_all">全部</string>
     <string name="log_display_clean">隐藏行尾</string>
     <string name="log_display_escaped">显示转义</string>
+    <string name="log_crlf_switch">Show CRLF</string>
 
     <!-- Common -->
     <string name="device_name_unknown">未知设备</string>

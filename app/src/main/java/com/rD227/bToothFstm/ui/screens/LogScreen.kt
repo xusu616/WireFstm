@@ -1,15 +1,27 @@
 package com.rD227.bToothFstm.ui.screens
 
+import android.content.res.Configuration
+import android.text.style.BackgroundColorSpan
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -33,7 +45,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -45,15 +56,19 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import com.rD227.bToothFstm.R
 import com.rD227.bToothFstm.data.ConnectionType
@@ -88,7 +103,9 @@ fun formatLogText(text: String, display: LogCRLFDisplay): String = when (display
 
 @Composable
 fun LogScreen(
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    autoChecksum: Boolean = false,
+    onAutoChecksumChange: (Boolean) -> Unit = {}
 ) {
     var filter by remember { mutableStateOf(LogFilter.ALL) }
     var textDisplay by rememberSaveable { mutableStateOf(LogCRLFDisplay.CLEAN) }
@@ -98,7 +115,9 @@ fun LogScreen(
         onFilterChange = { filter = it },
         textDisplay = textDisplay,
         onTextDisplayChange = { textDisplay = it },
-        onClear = LogData::clearLogs
+        onClear = LogData::clearLogs,
+        autoChecksum = autoChecksum,
+        onAutoChecksumChange = onAutoChecksumChange
     )
 }
 
@@ -134,87 +153,183 @@ fun LogScreenContent(
     textDisplay: LogCRLFDisplay,
     onTextDisplayChange: (LogCRLFDisplay) -> Unit,
     onClear: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    rightMenuInitVisible : Boolean = false,
+    autoChecksum: Boolean = false,
+    onAutoChecksumChange: (Boolean) -> Unit = {}
 ) {
     val displayedLogs = LogData.displayedLogs(filter)
     val timestampFormatter = remember {
         SimpleDateFormat("HH:mm:ss.SSS", Locale.getDefault())
     }
 
-    val rightMenuVisible = remember { mutableStateOf(false) }
+    val rightMenuVisible = remember { mutableStateOf(rightMenuInitVisible) }
     val gearRotation by animateFloatAsState(
         targetValue = if (rightMenuVisible.value) 180f else 0f,
         label = "gear-rotation"
     )
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        text = stringResource(R.string.log_title),
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                },
-                actions = {
-                    IconButton(onClick = onClear, enabled = LogData.logs.isNotEmpty()) {
-                        Icon(
-                            Icons.Default.DeleteOutline,
-                            contentDescription = stringResource(R.string.log_clear),
-                            tint = MaterialTheme.colorScheme.error
+    Box(modifier = Modifier.fillMaxSize(1f)) {
+        Scaffold(
+            topBar = {
+                TopAppBar(
+                    title = {
+                        Text(
+                            text = stringResource(R.string.log_title),
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.SemiBold
                         )
-                    }
-                    RoundIconButton(
-                        iconRes = R.drawable.gear,
-                        rotation = gearRotation,
-                        onClick = { rightMenuVisible.value = !rightMenuVisible.value }
+                    },
+                    actions = {
+                        IconButton(onClick = onClear, enabled = LogData.logs.isNotEmpty()) {
+                            Icon(
+                                Icons.Default.DeleteOutline,
+                                contentDescription = stringResource(R.string.log_clear),
+                                tint = MaterialTheme.colorScheme.error
+                            )
+                        }
+                        RoundIconButton(
+                            iconRes = R.drawable.gear,
+                            rotation = gearRotation,
+                            onClick = { rightMenuVisible.value = !rightMenuVisible.value }
+                        )
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.surface
                     )
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface
                 )
-            )
-        },
-        modifier = modifier
-    ) { innerPadding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-        ) {
-            LogFilterRow(filter = filter, onFilterChange = onFilterChange, textDisplay = textDisplay, onTextDisplayChange = onTextDisplayChange)
-            //LogTextDisplayRow(
-            //    textDisplay = textDisplay,
-            //    onTextDisplayChange = onTextDisplayChange
-            //)
-            if (displayedLogs.isEmpty()) {
-                EmptyLogPlaceholder(Modifier.weight(1f))
-            } else {
-                LazyColumn(
-                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 0.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    items(displayedLogs, key = { it.id }) { entry ->
-                        LogEntryRow(
-                            entry = entry,
-                            formattedTimestamp = timestampFormatter.format(Date(entry.timestamp)),
-                            textDisplay = textDisplay
-                        )
+            },
+            modifier = modifier
+        ) { innerPadding ->
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding)
+            ) {
+                LogFilterRow(
+                    filter = filter,
+                    onFilterChange = onFilterChange
+                )
+                //LogTextDisplayRow(
+                //    textDisplay = textDisplay,
+                //    onTextDisplayChange = onTextDisplayChange
+                //)
+                if (displayedLogs.isEmpty()) {
+                    EmptyLogPlaceholder(Modifier.weight(1f))
+                } else {
+                    LazyColumn(
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 0.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        items(displayedLogs, key = { it.id }) { entry ->
+                            LogEntryRow(
+                                entry = entry,
+                                formattedTimestamp = timestampFormatter.format(Date(entry.timestamp)),
+                                textDisplay = textDisplay
+                            )
+                        }
                     }
+                }
+            }
+        }
+
+        AnimatedVisibility (
+                visible = rightMenuVisible.value,
+                enter = fadeIn(),
+                exit = fadeOut(),
+            ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.4f))
+                    .clickable(
+                        onClick = {
+                            rightMenuVisible.value = false
+                        },
+                        //enabled = rightMenuVisible.value,
+                        indication = null,
+                        interactionSource = remember { MutableInteractionSource() }
+                    )
+            )
+        }
+
+        AnimatedVisibility(
+            visible = rightMenuVisible.value,
+            enter = slideInHorizontally(
+                initialOffsetX = { it },
+                //animationSpec = tween(300)
+                animationSpec = spring(
+                    dampingRatio = Spring.DampingRatioLowBouncy,
+                    stiffness = Spring.StiffnessLow
+                )
+            ) + fadeIn(animationSpec = tween(300)),
+            exit = slideOutHorizontally(
+                targetOffsetX = { it },
+                //animationSpec = tween(300)
+            ) + fadeOut(animationSpec = tween(300)),
+            modifier = Modifier.align(Alignment.TopEnd)
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .width(270.dp)
+                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                    .graphicsLayer { clip = true } // 提示系统开启硬件加速
+            ) {
+                Column {
+                    Spacer(modifier = Modifier.padding(10.dp))
+                    RowSwitch(
+                        name = stringResource(R.string.auto_checksum),
+                        checked = autoChecksum,
+                        onCheckedChange = onAutoChecksumChange
+                    )
+                    RowSwitch(
+                        name = stringResource(R.string.log_crlf_switch),
+                        checked = textDisplay == LogCRLFDisplay.ESCAPED,
+                        onCheckedChange = { isChecked ->
+                            onTextDisplayChange(
+                                if (isChecked) LogCRLFDisplay.ESCAPED else LogCRLFDisplay.CLEAN
+                            )
+                        }
+                    )
                 }
             }
         }
     }
 }
 
+@Composable
+private fun RowSwitch(
+    name: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = name,
+            fontWeight = FontWeight.Light,
+            style = MaterialTheme.typography.titleLarge
+        )
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange
+        )
+    }
+}
+
+/****/
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun LogFilterRow(
     filter: LogFilter,
-    onFilterChange: (LogFilter) -> Unit,
-    textDisplay: LogCRLFDisplay,
-    onTextDisplayChange: (LogCRLFDisplay) -> Unit) {
+    onFilterChange: (LogFilter) -> Unit
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -238,17 +353,6 @@ private fun LogFilterRow(
             )
         }
         Spacer(modifier = Modifier.weight(1f))
-        Box(
-            modifier = Modifier.align(Alignment.CenterVertically)
-        ) {
-            Switch(
-                checked = textDisplay == LogCRLFDisplay.ESCAPED,
-                onCheckedChange = { isChecked ->
-                    onTextDisplayChange(if (isChecked) LogCRLFDisplay.ESCAPED else LogCRLFDisplay.CLEAN)
-                },
-                colors = SwitchDefaults.colors(MaterialTheme.colorScheme.primaryContainer)
-            )
-        }
     }
 }
 
@@ -423,7 +527,7 @@ private fun compactAddress(address: String): String {
 @Preview(showBackground = true, name = "Log — Light")
 @Preview(
     showBackground = true,
-    uiMode = android.content.res.Configuration.UI_MODE_NIGHT_YES,
+    uiMode = Configuration.UI_MODE_NIGHT_YES,
     name = "Log — Dark"
 )
 @Composable
@@ -434,7 +538,8 @@ private fun LogScreenPreview() {
             onFilterChange = {},
             textDisplay = LogCRLFDisplay.CLEAN,
             onTextDisplayChange = {},
-            onClear = {}
+            onClear = {},
+            rightMenuInitVisible = true
         )
     }
 }
