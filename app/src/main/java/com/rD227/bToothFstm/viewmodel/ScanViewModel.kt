@@ -63,6 +63,23 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
     val devices: List<BleDevice>
         get() = _devices
 
+    var sortByRssi by mutableStateOf(true)
+    var filterUnknownDevices by mutableStateOf(false)
+
+    fun getFilteredAndSortedDevices(
+        sortRssi: Boolean = sortByRssi,
+        filterUnknown: Boolean = filterUnknownDevices
+    ): List<BleDevice> {
+        var list: List<BleDevice> = _devices.toList()
+        if (filterUnknown) {
+            list = list.filter { it.name != UNKNOWN_DEVICE_NAME && it.name.isNotBlank() }
+        }
+        if (sortRssi) {
+            list = list.sortedByDescending { it.rssi }
+        }
+        return list
+    }
+
     private val _pairedDevices = mutableStateListOf<BleDevice>()
     val pairedDevices: List<BleDevice>
         get() = _pairedDevices
@@ -372,6 +389,8 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
     fun sendCommand(
         text: String,
         addChecksum: Boolean = false,
+        appendCrlf: Boolean = true,
+        hexMode: Boolean = false,
         onComplete: (SendResult) -> Unit = {}
     ): Long {
         val requestId = nextSendId.incrementAndGet()
@@ -383,7 +402,7 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
             return requestId
         }
 
-        val payload = frameCommand(text, addChecksum)
+        val payload = frameCommand(text, addChecksum, appendCrlf, hexMode)
         if (payload.size > MAX_COMMAND_PAYLOAD_BYTES) {
             dispatchImmediateResult(
                 SendResult.Failed(

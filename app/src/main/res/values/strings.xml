@@ -109,4 +109,40 @@
     <string name="cancel">取消</string>
     <string name="delete">删除</string>
     <string name="quicklyLog">快捷日志</string>
+
+    <!-- Settings Sidebar -->
+    <string name="settings_title">设置</string>
+    <string name="settings_section_protocol">通信与协议</string>
+    <string name="settings_auto_checksum">自动校验和</string>
+    <string name="settings_auto_checksum_desc">发送数据末尾追加低 8 位累加和</string>
+    <string name="settings_append_crlf">自动追加换行 (\\r\\n)</string>
+    <string name="settings_append_crlf_desc">发送指令末尾自动添加 \\r\\n 换行符</string>
+    <string name="settings_hex_mode">HEX 十六进制模式</string>
+    <string name="settings_hex_mode_desc">以十六进制字节格式收发与展示原始数据</string>
+
+    <string name="settings_section_scan">蓝牙与设备</string>
+    <string name="settings_sort_by_rssi">信号强度降序排序</string>
+    <string name="settings_sort_by_rssi_desc">按 RSSI 信号由强到弱实时排序设备</string>
+    <string name="settings_filter_unknown">过滤无名设备</string>
+    <string name="settings_filter_unknown_desc">自动隐藏未广播名称的未知设备</string>
+
+    <string name="settings_section_log">日志与显示</string>
+    <string name="settings_show_crlf">转义显示换行符</string>
+    <string name="settings_show_crlf_desc">显式显示 \\r、\\n 等控制字符</string>
+    <string name="settings_auto_scroll">新日志自动滚屏</string>
+    <string name="settings_auto_scroll_desc">收到新日志时自动滚动到最底部</string>
+    <string name="settings_show_timestamps">显示毫秒时间戳</string>
+    <string name="settings_show_timestamps_desc">每条日志展示精确到毫秒的时间戳</string>
+
+    <string name="settings_about_entry">关于 WireFstm</string>
+    <string name="settings_about_entry_desc">版本、说明与开源信息</string>
+
+    <!-- About Screen -->
+    <string name="about_title">关于</string>
+    <string name="about_app_desc">WireFstm 是基于 Android BLE 低功耗蓝牙与经典蓝牙 SPP 双模式的单片机无线通信调试工具，支持实时指令交互、自动校验和与收发日志监控。</string>
+    <string name="about_version">版本</string>
+    <string name="about_repo">GitLab 源码仓库</string>
+    <string name="about_license">开源协议</string>
+    <string name="about_license_name">GNU General Public License v3.0</string>
+    <string name="about_back">返回</string>
 </resources>

@@ -80,12 +80,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.rD227.bToothFstm.R
+import com.rD227.bToothFstm.data.AppSettingsState
 import com.rD227.bToothFstm.data.CommandScreenActions
 import com.rD227.bToothFstm.data.CommandScreenUiState
 import com.rD227.bToothFstm.data.ConnectionPhase
@@ -126,8 +128,12 @@ fun CommandScreen(
     scanViewModel: ScanViewModel,
     commandViewModel: CommandViewModel,
     modifier: Modifier = Modifier,
-    autoChecksum: Boolean = false
+    settings: AppSettingsState = AppSettingsState(),
+    onOpenSettings: () -> Unit = {}
 ) {
+    val autoChecksum = settings.autoChecksum
+    val appendCrlf = settings.appendCrlf
+    val hexMode = settings.hexMode
     val connectionState = scanViewModel.connectionState
     val targetDevice = connectionState.address?.let { address ->
         scanViewModel.devices.firstOrNull { it.address == address }
@@ -175,9 +181,9 @@ fun CommandScreen(
         ),
         actions = CommandScreenActions(
             onCustomInputChange = { customInput = it },
-            onQuickSend = { scanViewModel.sendCommand(it, autoChecksum) },
+            onQuickSend = { scanViewModel.sendCommand(it, autoChecksum, appendCrlf, hexMode) },
             onCustomSend = { submittedText ->
-                val requestId = scanViewModel.sendCommand(submittedText, autoChecksum)
+                val requestId = scanViewModel.sendCommand(submittedText, autoChecksum, appendCrlf, hexMode)
                 pendingCustomRequestId = requestId
                 pendingCustomText = submittedText
             },
@@ -189,6 +195,7 @@ fun CommandScreen(
             onUpdateCommand = commandViewModel::updateQuickCommand,
             onDeleteCommand = commandViewModel::deleteQuickCommand
         ),
+        onOpenSettings = onOpenSettings,
         modifier = modifier,
         snackbarHost = { SnackbarHost(snackbarHostState) }
     )
@@ -200,6 +207,7 @@ fun CommandScreenContent(
     state: CommandScreenUiState,
     actions: CommandScreenActions,
     modifier: Modifier = Modifier,
+    onOpenSettings: () -> Unit = {},
     snackbarHost: @Composable () -> Unit = {}
 ) {
     var showDeviceSheet by remember { mutableStateOf(false) }
@@ -234,12 +242,23 @@ fun CommandScreenContent(
                     }
                     FilledTonalIconButton(
                         onClick = { showUuidDialog = true },
-                        modifier = Modifier.padding(end = 8.dp)
+                        modifier = Modifier.padding(end = 4.dp)
                     ) {
                         Icon(
                             Icons.Default.Tune,
                             contentDescription = stringResource(R.string.uuid_settings),
                             modifier = Modifier.size(20.dp)
+                        )
+                    }
+                    FilledTonalIconButton(
+                        onClick = onOpenSettings,
+                        modifier = Modifier.padding(end = 8.dp)
+                    ) {
+                        Icon(
+                            painter = painterResource(R.drawable.gear),
+                            contentDescription = stringResource(R.string.settings_title),
+                            modifier = Modifier.size(20.dp),
+                            tint = MaterialTheme.colorScheme.primary
                         )
                     }
                 },

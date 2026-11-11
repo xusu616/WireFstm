@@ -21,10 +21,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.BluetoothSearching
+import androidx.compose.material.icons.automirrored.filled.BluetoothSearching
+import androidx.compose.material.icons.automirrored.outlined.BluetoothSearching
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Terminal
-import androidx.compose.material.icons.outlined.BluetoothSearching
 import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.Terminal
 import androidx.compose.material3.Icon
@@ -51,6 +51,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.rD227.bToothFstm.R
+import com.rD227.bToothFstm.data.rememberAppSettingsManager
+import com.rD227.bToothFstm.ui.components.GlassSidebarBox
+import com.rD227.bToothFstm.ui.screens.AboutScreen
 import com.rD227.bToothFstm.ui.screens.CommandScreen
 import com.rD227.bToothFstm.ui.screens.LogScreen
 import com.rD227.bToothFstm.ui.screens.ScanScreen
@@ -66,8 +69,8 @@ sealed class AppScreen(
     object Scan : AppScreen(
         route = "scan",
         labelRes = R.string.nav_scan,
-        selectedIcon = Icons.Filled.BluetoothSearching,
-        unselectedIcon = Icons.Outlined.BluetoothSearching
+        selectedIcon = Icons.AutoMirrored.Filled.BluetoothSearching,
+        unselectedIcon = Icons.AutoMirrored.Outlined.BluetoothSearching
     )
     object Control : AppScreen(
         route = "control",
@@ -89,131 +92,165 @@ val bottomNavScreens = listOf(AppScreen.Scan, AppScreen.Control, AppScreen.Log)
 fun McuLinkApp() {
     val scanViewModel: ScanViewModel = viewModel()
     val commandViewModel: CommandViewModel = viewModel()
+    val settingsManager = rememberAppSettingsManager()
+    val settings = settingsManager.settings
+
+    // 同步设置至扫描状态
+    LaunchedEffect(settings.sortByRssi, settings.filterUnknownDevices) {
+        scanViewModel.sortByRssi = settings.sortByRssi
+        scanViewModel.filterUnknownDevices = settings.filterUnknownDevices
+    }
+
     var currentScreen by rememberSaveable { mutableStateOf(AppScreen.Scan.route) }
+    var previousScreen by rememberSaveable { mutableStateOf(AppScreen.Scan.route) }
     var selectedIndex by rememberSaveable { mutableIntStateOf(0) }
-    var autoChecksum by rememberSaveable { mutableStateOf(false) }
-    Scaffold(
-        bottomBar = {
-            BoxWithConstraints {
-                val totalWidth = maxWidth
-                val itemCount = bottomNavScreens.size
-                val itemWidth = totalWidth / itemCount
+    var isSidebarOpen by rememberSaveable { mutableStateOf(false) }
 
-                val indicatorOffsetX by animateDpAsState(
-                    targetValue = itemWidth * selectedIndex,
-                    animationSpec = spring(
-                        dampingRatio = Spring.DampingRatioMediumBouncy,
-                        stiffness = Spring.StiffnessLow
-                    ),
-                    label = "indicatorOffset"
-                )
+    Box(modifier = Modifier.fillMaxSize()) {
+        Scaffold(
+            bottomBar = {
+                if (currentScreen != "about") {
+                    BoxWithConstraints {
+                        val totalWidth = maxWidth
+                        val itemCount = bottomNavScreens.size
+                        val itemWidth = totalWidth / itemCount
 
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(MaterialTheme.colorScheme.surface)
-                        .navigationBarsPadding()
-                ) {
-                    // 第一层：滑动指示器
-                    Box(
-                        modifier = Modifier
-                            .offset { androidx.compose.ui.unit.IntOffset(indicatorOffsetX.roundToPx(), 0) }
-                            .padding(horizontal = 8.dp)
-                            .size(width = itemWidth - 16.dp, height = 45.dp)
-                            .align(Alignment.CenterStart)
-                            .background(
-                                color = MaterialTheme.colorScheme.surfaceVariant,
-                                shape = RoundedCornerShape(16.dp)
-                            )
-                    )
-                    // 第二层：icon + label 行
-                    Row(modifier = Modifier.fillMaxWidth()) {
-                        bottomNavScreens.forEachIndexed { index, screen ->
-                            val selected = index == selectedIndex
-                            val squishX = remember { Animatable(1f) }
+                        val indicatorOffsetX by animateDpAsState(
+                            targetValue = itemWidth * selectedIndex,
+                            animationSpec = spring(
+                                dampingRatio = Spring.DampingRatioMediumBouncy,
+                                stiffness = Spring.StiffnessLow
+                            ),
+                            label = "indicatorOffset"
+                        )
 
-                            LaunchedEffect(selected) {
-                                if (selected) {
-                                    squishX.animateTo(1.2f, animationSpec = tween(durationMillis = 80))
-                                    squishX.animateTo(1f, animationSpec = spring(
-                                        dampingRatio = Spring.DampingRatioMediumBouncy,
-                                        stiffness = Spring.StiffnessLow
-                                    ))
-                                }
-                            }
-
-                            val iconScale by animateFloatAsState(
-                                targetValue = if (selected) 1.2f else 1f,
-                                label = "iconScale",
-                                animationSpec = spring(
-                                    dampingRatio = Spring.DampingRatioHighBouncy,
-                                    stiffness = Spring.StiffnessMedium
-                                )
-                            )
-
-                            Column(
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(MaterialTheme.colorScheme.surface)
+                                .navigationBarsPadding()
+                        ) {
+                            // 第一层：滑动指示器
+                            Box(
                                 modifier = Modifier
-                                    .weight(1f)
-                                    .height(64.dp)
-                                    .clickable(
-                                        interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
-                                        indication = null
-                                    ) {
-                                        selectedIndex = index
-                                        currentScreen = screen.route
-                                    },
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center
-                            ) {
-                                Icon(
-                                    imageVector = if (selected) screen.selectedIcon else screen.unselectedIcon,
-                                    contentDescription = stringResource(screen.labelRes),
-                                    tint = if (selected)
-                                        MaterialTheme.colorScheme.onPrimaryContainer
-                                    else
-                                        MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.graphicsLayer(
-                                        scaleX = squishX.value * iconScale,
-                                        scaleY = iconScale
+                                    .offset { androidx.compose.ui.unit.IntOffset(indicatorOffsetX.roundToPx(), 0) }
+                                    .padding(horizontal = 8.dp)
+                                    .size(width = itemWidth - 16.dp, height = 45.dp)
+                                    .align(Alignment.CenterStart)
+                                    .background(
+                                        color = MaterialTheme.colorScheme.surfaceVariant,
+                                        shape = RoundedCornerShape(16.dp)
                                     )
-                                )
-                                Text(
-                                    text = stringResource(screen.labelRes),
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = if (selected)
-                                        MaterialTheme.colorScheme.primary
-                                    else
-                                        MaterialTheme.colorScheme.onSurfaceVariant,
-                                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal
-                                )
+                            )
+                            // 第二层：icon + label 行
+                            Row(modifier = Modifier.fillMaxWidth()) {
+                                bottomNavScreens.forEachIndexed { index, screen ->
+                                    val selected = index == selectedIndex
+                                    val squishX = remember { Animatable(1f) }
+
+                                    LaunchedEffect(selected) {
+                                        if (selected) {
+                                            squishX.animateTo(1.2f, animationSpec = tween(durationMillis = 80))
+                                            squishX.animateTo(1f, animationSpec = spring(
+                                                dampingRatio = Spring.DampingRatioMediumBouncy,
+                                                stiffness = Spring.StiffnessLow
+                                            ))
+                                        }
+                                    }
+
+                                    val iconScale by animateFloatAsState(
+                                        targetValue = if (selected) 1.2f else 1f,
+                                        label = "iconScale",
+                                        animationSpec = spring(
+                                            dampingRatio = Spring.DampingRatioHighBouncy,
+                                            stiffness = Spring.StiffnessMedium
+                                        )
+                                    )
+
+                                    Column(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .height(64.dp)
+                                            .clickable(
+                                                interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                                                indication = null
+                                            ) {
+                                                selectedIndex = index
+                                                currentScreen = screen.route
+                                            },
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = if (selected) screen.selectedIcon else screen.unselectedIcon,
+                                            contentDescription = stringResource(screen.labelRes),
+                                            tint = if (selected)
+                                                MaterialTheme.colorScheme.onPrimaryContainer
+                                            else
+                                                MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.graphicsLayer(
+                                                scaleX = squishX.value * iconScale,
+                                                scaleY = iconScale
+                                            )
+                                        )
+                                        Text(
+                                            text = stringResource(screen.labelRes),
+                                            style = MaterialTheme.typography.labelMedium,
+                                            color = if (selected)
+                                                MaterialTheme.colorScheme.primary
+                                            else
+                                                MaterialTheme.colorScheme.onSurfaceVariant,
+                                            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
                 }
             }
+        ) { innerPadding ->
+            val screenModifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+
+            when (currentScreen) {
+                AppScreen.Scan.route -> ScanScreen(
+                    scanViewModel = scanViewModel,
+                    settings = settings,
+                    onOpenSettings = { isSidebarOpen = true },
+                    modifier = screenModifier
+                )
+                AppScreen.Control.route -> CommandScreen(
+                    scanViewModel = scanViewModel,
+                    commandViewModel = commandViewModel,
+                    settings = settings,
+                    onOpenSettings = { isSidebarOpen = true },
+                    modifier = screenModifier
+                )
+                AppScreen.Log.route -> LogScreen(
+                    settings = settings,
+                    onOpenSettings = { isSidebarOpen = !isSidebarOpen },
+                    isSettingsOpen = isSidebarOpen,
+                    modifier = screenModifier
+                )
+                "about" -> AboutScreen(
+                    onBack = { currentScreen = previousScreen },
+                    modifier = screenModifier
+                )
+            }
         }
-    ) { innerPadding ->
-        val screenModifier = Modifier
-            .fillMaxSize()
-            .padding(innerPadding)
-        when (currentScreen) {
-            AppScreen.Scan.route -> ScanScreen(
-                scanViewModel = scanViewModel,
-                modifier = screenModifier
-            )
-            AppScreen.Control.route -> CommandScreen(
-                scanViewModel = scanViewModel,
-                commandViewModel = commandViewModel,
-                autoChecksum = autoChecksum,
-                modifier = screenModifier
-            )
-            AppScreen.Log.route -> LogScreen(
-                autoChecksum = autoChecksum,
-                onAutoChecksumChange = { autoChecksum = it },
-                modifier = screenModifier
-                //use odd object now
-            )
-        }
+
+        // 全局侧边栏抽屉 (参考 shizuku-ftp GlassSidebarBox，展开多个 switch，底部提供关于页导航)
+        GlassSidebarBox(
+            isOpen = isSidebarOpen,
+            onDismiss = { isSidebarOpen = false },
+            settingsManager = settingsManager,
+            onNavigateAbout = {
+                previousScreen = currentScreen
+                currentScreen = "about"
+            }
+        )
     }
 }
 

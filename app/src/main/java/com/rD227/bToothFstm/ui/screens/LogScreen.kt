@@ -48,6 +48,9 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.runtime.LaunchedEffect
+import com.rD227.bToothFstm.data.AppSettingsState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -83,19 +86,25 @@ import java.util.Locale
 
 enum class LogCRLFDisplay { CLEAN, ESCAPED }
 
-fun formatLogText(text: String, display: LogCRLFDisplay): String = when (display) {
-    LogCRLFDisplay.CLEAN -> text.trimEnd('\r', '\n')
-    LogCRLFDisplay.ESCAPED -> buildString {
-        text.forEach { character ->
-            when {
-                character == '\\' -> append("\\\\")
-                character == '\r' -> append("\\r")
-                character == '\n' -> append("\\n")
-                character == '\t' -> append("\\t")
-                character == '\b' -> append("\\b")
-                character == '\u000C' -> append("\\f")
-                character.isISOControl() -> append("\\u%04X".format(character.code))
-                else -> append(character)
+fun formatLogText(text: String, display: LogCRLFDisplay, hexMode: Boolean = false): String {
+    if (hexMode) {
+        val bytes = text.toByteArray(Charsets.UTF_8)
+        return bytes.joinToString(" ") { "%02X".format(it) }
+    }
+    return when (display) {
+        LogCRLFDisplay.CLEAN -> text.trimEnd('\r', '\n')
+        LogCRLFDisplay.ESCAPED -> buildString {
+            text.forEach { character ->
+                when {
+                    character == '\\' -> append("\\\\")
+                    character == '\r' -> append("\\r")
+                    character == '\n' -> append("\\n")
+                    character == '\t' -> append("\\t")
+                    character == '\b' -> append("\\b")
+                    character == '\u000C' -> append("\\f")
+                    character.isISOControl() -> append("\\u%04X".format(character.code))
+                    else -> append(character)
+                }
             }
         }
     }
@@ -104,20 +113,21 @@ fun formatLogText(text: String, display: LogCRLFDisplay): String = when (display
 @Composable
 fun LogScreen(
     modifier: Modifier = Modifier,
-    autoChecksum: Boolean = false,
-    onAutoChecksumChange: (Boolean) -> Unit = {}
+    settings: AppSettingsState = AppSettingsState(),
+    onOpenSettings: () -> Unit = {},
+    isSettingsOpen: Boolean = false
 ) {
     var filter by remember { mutableStateOf(LogFilter.ALL) }
-    var textDisplay by rememberSaveable { mutableStateOf(LogCRLFDisplay.CLEAN) }
+    val textDisplay = if (settings.showCrlf) LogCRLFDisplay.ESCAPED else LogCRLFDisplay.CLEAN
     LogScreenContent(
         modifier = modifier,
         filter = filter,
         onFilterChange = { filter = it },
         textDisplay = textDisplay,
-        onTextDisplayChange = { textDisplay = it },
         onClear = LogData::clearLogs,
-        autoChecksum = autoChecksum,
-        onAutoChecksumChange = onAutoChecksumChange
+        settings = settings,
+        onOpenSettings = onOpenSettings,
+        isSettingsOpen = isSettingsOpen
     )
 }
 
@@ -151,21 +161,26 @@ fun LogScreenContent(
     filter: LogFilter,
     onFilterChange: (LogFilter) -> Unit,
     textDisplay: LogCRLFDisplay,
-    onTextDisplayChange: (LogCRLFDisplay) -> Unit,
     onClear: () -> Unit,
     modifier: Modifier = Modifier,
-    rightMenuInitVisible : Boolean = false,
-    autoChecksum: Boolean = false,
-    onAutoChecksumChange: (Boolean) -> Unit = {}
+    settings: AppSettingsState = AppSettingsState(),
+    onOpenSettings: () -> Unit = {},
+    isSettingsOpen: Boolean = false
 ) {
     val displayedLogs = LogData.displayedLogs(filter)
     val timestampFormatter = remember {
         SimpleDateFormat("HH:mm:ss.SSS", Locale.getDefault())
     }
+    val listState = rememberLazyListState()
 
-    val rightMenuVisible = remember { mutableStateOf(rightMenuInitVisible) }
+    LaunchedEffect(displayedLogs.size) {
+        if (settings.autoScrollLogs && displayedLogs.isNotEmpty()) {
+            listState.animateScrollToItem(displayedLogs.size - 1)
+        }
+    }
+
     val gearRotation by animateFloatAsState(
-        targetValue = if (rightMenuVisible.value) 180f else 0f,
+        targetValue = if (isSettingsOpen) 180f else 0f,
         label = "gear-rotation"
     )
 
@@ -191,7 +206,7 @@ fun LogScreenContent(
                         RoundIconButton(
                             iconRes = R.drawable.gear,
                             rotation = gearRotation,
-                            onClick = { rightMenuVisible.value = !rightMenuVisible.value }
+                            onClick = onOpenSettings
                         )
                     },
                     colors = TopAppBarDefaults.topAppBarColors(
@@ -210,14 +225,11 @@ fun LogScreenContent(
                     filter = filter,
                     onFilterChange = onFilterChange
                 )
-                //LogTextDisplayRow(
-                //    textDisplay = textDisplay,
-                //    onTextDisplayChange = onTextDisplayChange
-                //)
                 if (displayedLogs.isEmpty()) {
                     EmptyLogPlaceholder(Modifier.weight(1f))
                 } else {
                     LazyColumn(
+                        state = listState,
                         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 0.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
@@ -225,101 +237,15 @@ fun LogScreenContent(
                             LogEntryRow(
                                 entry = entry,
                                 formattedTimestamp = timestampFormatter.format(Date(entry.timestamp)),
-                                textDisplay = textDisplay
+                                textDisplay = textDisplay,
+                                showTimestamps = settings.showTimestamps,
+                                hexMode = settings.hexMode
                             )
                         }
                     }
                 }
             }
         }
-
-        AnimatedVisibility (
-                visible = rightMenuVisible.value,
-                enter = fadeIn(),
-                exit = fadeOut(),
-            ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.4f))
-                    .clickable(
-                        onClick = {
-                            rightMenuVisible.value = false
-                        },
-                        //enabled = rightMenuVisible.value,
-                        indication = null,
-                        interactionSource = remember { MutableInteractionSource() }
-                    )
-            )
-        }
-
-        AnimatedVisibility(
-            visible = rightMenuVisible.value,
-            enter = slideInHorizontally(
-                initialOffsetX = { it },
-                //animationSpec = tween(300)
-                animationSpec = spring(
-                    dampingRatio = Spring.DampingRatioLowBouncy,
-                    stiffness = Spring.StiffnessLow
-                )
-            ) + fadeIn(animationSpec = tween(300)),
-            exit = slideOutHorizontally(
-                targetOffsetX = { it },
-                //animationSpec = tween(300)
-            ) + fadeOut(animationSpec = tween(300)),
-            modifier = Modifier.align(Alignment.TopEnd)
-        ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxHeight()
-                    .width(270.dp)
-                    .background(MaterialTheme.colorScheme.surfaceVariant)
-                    .graphicsLayer { clip = true } // 提示系统开启硬件加速
-            ) {
-                Column {
-                    Spacer(modifier = Modifier.padding(10.dp))
-                    RowSwitch(
-                        name = stringResource(R.string.auto_checksum),
-                        checked = autoChecksum,
-                        onCheckedChange = onAutoChecksumChange
-                    )
-                    RowSwitch(
-                        name = stringResource(R.string.log_crlf_switch),
-                        checked = textDisplay == LogCRLFDisplay.ESCAPED,
-                        onCheckedChange = { isChecked ->
-                            onTextDisplayChange(
-                                if (isChecked) LogCRLFDisplay.ESCAPED else LogCRLFDisplay.CLEAN
-                            )
-                        }
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun RowSwitch(
-    name: String,
-    checked: Boolean,
-    onCheckedChange: (Boolean) -> Unit
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 20.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(
-            text = name,
-            fontWeight = FontWeight.Light,
-            style = MaterialTheme.typography.titleLarge
-        )
-        Switch(
-            checked = checked,
-            onCheckedChange = onCheckedChange
-        )
     }
 }
 
@@ -395,7 +321,9 @@ private fun LogTextDisplayRow(
 fun LogEntryRow(
     entry: LogEntry,
     formattedTimestamp: String,
-    textDisplay: LogCRLFDisplay
+    textDisplay: LogCRLFDisplay,
+    showTimestamps: Boolean = true,
+    hexMode: Boolean = false
 ) {
     val isSent = entry.direction == LogDirection.SENT
     Row(
@@ -461,11 +389,13 @@ fun LogEntryRow(
                         MaterialTheme.colorScheme.secondary
                     }
                 )
-                Text(
-                    text = formattedTimestamp,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                if (showTimestamps) {
+                    Text(
+                        text = formattedTimestamp,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
             Surface(
                 shape = RoundedCornerShape(
@@ -482,7 +412,7 @@ fun LogEntryRow(
                 modifier = Modifier.padding(top = 4.dp)
             ) {
                 Text(
-                    text = formatLogText(entry.text, textDisplay),
+                    text = formatLogText(entry.text, textDisplay, hexMode),
                     style = MaterialTheme.typography.bodySmall.copy(
                         fontFamily = FontFamily.Monospace,
                         fontSize = 13.sp
@@ -537,9 +467,8 @@ private fun LogScreenPreview() {
             filter = LogFilter.ALL,
             onFilterChange = {},
             textDisplay = LogCRLFDisplay.CLEAN,
-            onTextDisplayChange = {},
             onClear = {},
-            rightMenuInitVisible = true
+            isSettingsOpen = false
         )
     }
 }

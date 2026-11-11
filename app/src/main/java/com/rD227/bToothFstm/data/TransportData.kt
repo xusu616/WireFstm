@@ -105,14 +105,22 @@ data class PendingSend(
     val onComplete: (SendResult) -> Unit
 )
 
-fun frameCommand(text: String, addChecksum: Boolean = false): ByteArray {
+fun frameCommand(
+    text: String,
+    addChecksum: Boolean = false,
+    appendCrlf: Boolean = true,
+    hexMode: Boolean = false
+): ByteArray {
     val trimmed = text.trimEnd('\r', '\n')
-    val data = if (addChecksum) {
+    val data = if (hexMode) {
+        parseHexBytes(trimmed) ?: trimmed.toByteArray(Charsets.UTF_8)
+    } else if (addChecksum) {
         parseHexBytes(trimmed) ?: trimmed.toByteArray(Charsets.UTF_8)
     } else {
         trimmed.toByteArray(Charsets.UTF_8)
     }
-    return if (addChecksum) appendChecksum(data) else data + "\r\n".toByteArray(Charsets.UTF_8)
+    val withChecksum = if (addChecksum) appendChecksum(data) else data
+    return if (appendCrlf) withChecksum + "\r\n".toByteArray(Charsets.UTF_8) else withChecksum
 }
 
 /** Parses a hex string such as "12 AB 45" or "0x12 0xAB 0x45" into bytes, or null if not valid hex. */

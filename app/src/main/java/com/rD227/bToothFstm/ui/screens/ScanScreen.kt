@@ -41,6 +41,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -60,11 +61,13 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TileMode
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.rD227.bToothFstm.R
+import com.rD227.bToothFstm.data.AppSettingsState
 import com.rD227.bToothFstm.data.ConnectionPhase
 import com.rD227.bToothFstm.data.ConnectionType
 import com.rD227.bToothFstm.data.ConnectionUiState
@@ -76,7 +79,9 @@ import com.rD227.bToothFstm.viewmodel.ScanViewModel
 @Composable
 fun ScanScreen(
     scanViewModel: ScanViewModel,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    settings: AppSettingsState = AppSettingsState(),
+    onOpenSettings: () -> Unit = {}
 ) {
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -87,7 +92,7 @@ fun ScanScreen(
     ScanScreenContent(
         modifier = modifier,
         isScanning = scanViewModel.isScanning,
-        devices = scanViewModel.devices,
+        devices = scanViewModel.getFilteredAndSortedDevices(settings.sortByRssi, settings.filterUnknownDevices),
         connectionState = scanViewModel.connectionState,
         onToggleScan = {
             if (scanViewModel.isScanning) {
@@ -107,7 +112,8 @@ fun ScanScreen(
             }
         },
         onConnect = scanViewModel::connectDevice,
-        onDisconnect = scanViewModel::disconnectDevice
+        onDisconnect = scanViewModel::disconnectDevice,
+        onOpenSettings = onOpenSettings
     )
 }
 
@@ -120,7 +126,8 @@ fun ScanScreenContent(
     connectionState: ConnectionUiState,
     onToggleScan: () -> Unit,
     onConnect: (BleDevice) -> Unit,
-    onDisconnect: () -> Unit
+    onDisconnect: () -> Unit,
+    onOpenSettings: () -> Unit = {}
 ) {
     Scaffold(
         topBar = {
@@ -131,6 +138,19 @@ fun ScanScreenContent(
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.SemiBold
                     )
+                },
+                actions = {
+                    FilledTonalIconButton(
+                        onClick = onOpenSettings,
+                        modifier = Modifier.padding(end = 8.dp)
+                    ) {
+                        Icon(
+                            painter = painterResource(R.drawable.gear),
+                            contentDescription = stringResource(R.string.settings_title),
+                            modifier = Modifier.size(20.dp),
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surface
